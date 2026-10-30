@@ -12,3 +12,5 @@ dist/
 .coverage
 .coverage.*
 htmlcov/
+config.bat
+node_modules
