@@ -39,7 +39,9 @@ discussion and diff. New entries must include that link; see
   fresh read-only captures and records separately verify the fixture on
   Testnet and Futurenet. Registry CI now rejects an empty Protocol 29 pack;
   the fixture-to-RPC mapping, endpoint passphrase checks and distinct
-  two-network scheduled evidence workflow are covered by tests.
+  two-network scheduled evidence workflow are covered by tests. The Engine at
+  Protocol-Canary `aa652ef600ab25b36019077684474beb34159f61` separately
+  executed the fixture live on both networks (1 passed on each).
   See [PR #482](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/482).
 - RPC contract coverage now completes F-020 (#282): `[request]` is described
   in the JSON Schema, `field-one-of` and the engine-supported `integer`

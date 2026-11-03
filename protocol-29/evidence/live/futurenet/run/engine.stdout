@@ -26,18 +26,18 @@
       "surface": "rpc",
       "status": "pass",
       "summary": "GetVersionInfo response matched all 1 assertion(s)",
-      "durationMs": 484,
+      "durationMs": 626,
       "fixtureId": "p29-rpc-version-info-protocol-29",
       "source": "live"
     }
   ],
   "git": {
-    "commit": "0be85114313c9e92d3919c8c282fa133e86d82b0",
+    "commit": "5d993e4b9032280c391d048c4925c03c15a402a7",
     "branch": "fix/p29-version-info-fixture-semantics",
-    "isDirty": true
+    "isDirty": false
   },
   "verbose": false,
   "run": {
-    "toolBuildCommit": "da1e15b226a689560841439b86e682d272fe3c08"
+    "toolBuildCommit": "aa652ef600ab25b36019077684474beb34159f61"
   }
 }
