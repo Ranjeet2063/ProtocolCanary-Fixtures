@@ -103,7 +103,7 @@ python3 tools/pack/archive_digests.py build [--pack PACK] [--version VERSION]
 python3 tools/pack/archive_digests.py compare --results DIR
     [--expected-cell CELL] [--expected-matrix JSON] [--summary-file PATH]
 python3 tools/evidence/record_structural.py PACK [--output-dir DIR]
-    [--verifier-version VERSION] [--dry-run] [--require-matched]
+    [--verifier-version VERSION] [--dry-run]
 ```
 
 ### Options
@@ -389,7 +389,7 @@ Captures live read-only RPC evidence from an approved endpoint and writes one CF
 ```bash
 python3 tools/evidence/capture_live.py PACK [--output-dir DIR] [--endpoint HOST]
     [--local-endpoint URL] [--capture-method METHOD] [--timeout SECONDS]
-    [--verifier-version VERSION] [--dry-run]
+    [--verifier-version VERSION] [--dry-run] [--require-matched]
 ```
 
 ### Options

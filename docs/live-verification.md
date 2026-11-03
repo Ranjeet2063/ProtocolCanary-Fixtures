@@ -5,10 +5,6 @@ separate Testnet/Futurenet schedule and success gate documented in
 [Protocol 29 live verification](protocol-29-live-verification.md); the
 Protocol 28 schedule remains unchanged.
 
-This page describes the existing Protocol 28 capture workflow, which is
-kept unchanged. Protocol 29 has a separate Testnet/Futurenet workflow and a
-strict pass gate; see [Protocol 29 live verification](protocol-29-live-verification.md).
-
 The job is the CF-04-E unit ("scheduled read-only verification job that
 saves captures"). It is issue [#368](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/368).
 
