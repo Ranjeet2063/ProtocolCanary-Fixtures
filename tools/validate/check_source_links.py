@@ -478,7 +478,7 @@ def _check_rpc_service(
         if response.status != 200:
             return CheckResult("Failed", f"HTTP {response.status}")
         response_body = response.read(MAX_RPC_LINK_RESPONSE_BYTES + 1)
-    except (TimeoutError, socket.timeout):
+    except TimeoutError:
         return CheckResult("Failed", f"timed out after {timeout}s")
     except Exception as exc:
         return CheckResult("Failed", f"response read failed: {type(exc).__name__}: {exc}")
