@@ -33,6 +33,14 @@ discussion and diff. New entries must include that link; see
 
 ### Changed
 
+- Release selection now maps protocol-scoped tags
+  `fixtures-p28-vX.Y.Z` and `fixtures-p29-vX.Y.Z` to one exact pack; manual
+  dispatch also requires an explicit protocol and version. Protocol 29 verified
+  builds require fresh matched read-only evidence for every fixture on both
+  Testnet and Futurenet, linked to raw captures. Empty packs cannot pass the
+  verified gate, legacy structural history is ignored, and release uploads do
+  not replace existing assets. See
+  [PR #484](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/484).
 - RPC contract coverage now completes F-020 (#282): `[request]` is described
   in the JSON Schema, `field-one-of` and the engine-supported `integer`
   `field-type` are validated and evaluated by the live-capture verifier; the
