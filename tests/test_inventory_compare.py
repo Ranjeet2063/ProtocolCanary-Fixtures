@@ -748,7 +748,7 @@ class EmptyBaselineTests(unittest.TestCase):
         )
         self.assertEqual(code, 1)
         self.assertIn("missing from the engine inventory (1)", out)
-        self.assertIn("p29-rpc-network-mismatch", out)
+        self.assertIn("p29-rpc-version-info-protocol-29", out)
 
     def test_an_engine_fixture_absent_from_the_registry_is_extra(self) -> None:
         path = write_json(

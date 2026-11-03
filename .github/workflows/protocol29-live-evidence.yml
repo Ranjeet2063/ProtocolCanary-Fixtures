@@ -1,0 +1,85 @@
+# Protocol 29 live read-only verification, separate from the immutable
+# Protocol 28 schedule in live-evidence.yml. Every matrix leg must execute at
+# least one fixture check and match every Protocol 29 RPC fixture; zero checks
+# and mismatches fail the leg. Artifacts are uploaded even when capture fails.
+
+name: protocol29-live-evidence
+
+on:
+  schedule:
+    # Separate weekly slot from the existing Protocol 28 capture workflow.
+    - cron: "42 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - network: testnet
+            endpoint: soroban-testnet.stellar.org
+          - network: futurenet
+            endpoint: rpc-futurenet.stellar.org
+    steps:
+      - name: Check out the fixture pack
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11.16"
+
+      - name: Capture and execute Protocol 29 fixtures
+        id: capture
+        continue-on-error: true
+        env:
+          NETWORK: ${{ matrix.network }}
+          ENDPOINT: ${{ matrix.endpoint }}
+        run: |
+          set -uo pipefail
+          live_dir="protocol-29/evidence/live/${NETWORK}"
+          mkdir -p "$live_dir/run"
+          set +e
+          python3 tools/evidence/capture_live.py protocol-29 \
+            --endpoint "$ENDPOINT" \
+            --output-dir "$live_dir" \
+            --capture-method getLatestLedger \
+            --require-matched > "$live_dir/run/capture.log" 2>&1
+          status=$?
+          printf '%s\n' "$status" > "$live_dir/run/exit-code.txt"
+          cat "$live_dir/run/capture.log"
+          exit "$status"
+
+      - name: Validate the generated Protocol 29 records
+        if: steps.capture.outcome == 'success'
+        env:
+          NETWORK: ${{ matrix.network }}
+        run: >
+          python3 tools/validate/validate.py protocol-29
+          --evidence protocol-29/evidence/live/${{ matrix.network }}/records
+
+      - name: Upload captures, records and command result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: protocol-29-live-evidence-${{ matrix.network }}-${{ github.run_number }}
+          path: protocol-29/evidence/live/${{ matrix.network }}
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Require executed, passing checks
+        if: always()
+        env:
+          CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
+        run: |
+          if [[ "$CAPTURE_OUTCOME" != "success" ]]; then
+            echo "Protocol 29 live capture did not execute and match every fixture check."
+            exit 1
+          fi

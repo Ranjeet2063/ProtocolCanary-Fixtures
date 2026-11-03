@@ -31,6 +31,7 @@ REPO_ROOT = support.REPO_ROOT
 TOOL = REPO_ROOT / "tools" / "evidence" / "capture_live.py"
 VALIDATOR = REPO_ROOT / "tools" / "validate" / "validate.py"
 PACK = REPO_ROOT / "protocol-28"
+PACK29 = REPO_ROOT / "protocol-29"
 
 
 class CaptureLiveTests(unittest.TestCase):
@@ -557,24 +558,117 @@ class CaptureLiveUnitTests(unittest.TestCase):
         )
         self.assertIn("not an object", problems[0])
 
+    def test_a_protocol29_get_version_info_fixture_maps_to_the_read_only_rpc(self) -> None:
+        fixtures = capture_live.load_rpc_fixtures(PACK29)
+        self.assertEqual(len(fixtures), 1)
+        self.assertEqual(fixtures[0]["id"], "p29-rpc-version-info-protocol-29")
+        self.assertEqual(fixtures[0]["method"], "get-version-info")
+        self.assertEqual(fixtures[0]["live_method"], "getVersionInfo")
+        self.assertIn(fixtures[0]["live_method"], capture_live.READ_ONLY_METHODS)
+
+    def test_a_protocol29_live_capture_writes_a_linked_record(self) -> None:
+        with mock_rpc.MockRpcServer(protocol=29) as server:
+            summary = capture_live.run(
+                PACK29,
+                output_dir=self.output,
+                local_endpoint=server.url,
+                capture_methods=["getLatestLedger"],
+            )
+
+        self.assertEqual(summary.failures, [])
+        self.assertEqual(
+            sorted(path.name for path in (self.output / "captures").glob("*.json")),
+            ["get-latest-ledger.json", "get-network.json", "get-version-info.json"],
+        )
+        record_path = (
+            self.output
+            / "records"
+            / "p29-rpc-version-info-protocol-29.live-read-only.json"
+        )
+        record = self.read_json(record_path)
+        version_capture = self.read_json(self.output / "captures" / "get-version-info.json")
+        self.assertEqual(record["method"], "live-read-only")
+        self.assertEqual(record["outcome"], "matched")
+        self.assertEqual(
+            record["fixtureSha256"],
+            hashlib.sha256(
+                (PACK29 / "rpc" / "p29-rpc-version-info-protocol-29.toml").read_bytes()
+            ).hexdigest(),
+        )
+        self.assertEqual(record["checkedAt"], version_capture["capturedAt"])
+        self.assertEqual(record["evidenceRef"], "captures/get-version-info.json")
+        self.assertEqual(record["endpointHost"], "127.0.0.1")
+        self.assertEqual(
+            record["network"],
+            {
+                "name": "local-mock",
+                "passphrase": mock_rpc.TESTNET_PASSPHRASE,
+                "observedProtocol": 29,
+            },
+        )
+        self.assertEqual(version_capture["request"]["method"], "getVersionInfo")
+        self.assertEqual(version_capture["response"]["result"]["protocolVersion"], 29)
+
+    def test_an_approved_endpoint_with_another_passphrase_keeps_captures_without_a_record(self) -> None:
+        answers = {
+            "getNetwork": {
+                "passphrase": capture_live.FUTURENET_PASSPHRASE,
+                "protocolVersion": 29,
+            },
+            "getVersionInfo": {"protocolVersion": 29},
+        }
+        with mock.patch.object(
+            capture_live, "capture_method", side_effect=lambda _url, method, _id, _timeout: answers[method]
+        ):
+            summary = capture_live.run(
+                PACK29,
+                output_dir=self.output,
+                endpoint="soroban-testnet.stellar.org",
+            )
+        self.assertFalse(summary.ok)
+        self.assertEqual(summary.records, [])
+        self.assertIn("does not identify testnet", summary.failures[0][1])
+        captured_network = self.read_json(self.output / "captures" / "get-network.json")
+        self.assertEqual(
+            captured_network["response"]["result"]["passphrase"],
+            capture_live.FUTURENET_PASSPHRASE,
+        )
+        self.assertFalse((self.output / "records").exists())
+
     # ---------------------------------------------------- the endpoint rules
 
-    def test_the_approved_endpoint_is_the_default(self) -> None:
+    def test_the_default_endpoint_remains_testnet(self) -> None:
         endpoint = capture_live.resolve_endpoint(None, None)
-        self.assertEqual(endpoint.host, sorted(capture_live.APPROVED_ENDPOINTS)[0])
+        parser = capture_live.build_parser()
+        endpoint_help = next(action.help for action in parser._actions if action.dest == "endpoint")
+        self.assertIn("soroban-testnet.stellar.org", endpoint_help)
+        self.assertEqual(endpoint.host, "soroban-testnet.stellar.org")
+        self.assertEqual(endpoint.network, "testnet")
+        self.assertEqual(endpoint.expected_passphrase, capture_live.TESTNET_PASSPHRASE)
         self.assertTrue(endpoint.url.startswith("https://"))
-        self.assertEqual(endpoint.network, capture_live.APPROVED_ENDPOINTS[endpoint.host])
 
-    def test_an_approved_endpoint_can_be_named(self) -> None:
-        endpoint = capture_live.resolve_endpoint(
-            sorted(capture_live.APPROVED_ENDPOINTS)[0], None
-        )
-        self.assertEqual(endpoint.url, f"https://{sorted(capture_live.APPROVED_ENDPOINTS)[0]}")
+    def test_both_published_test_network_endpoints_can_be_named(self) -> None:
+        expected = {
+            "soroban-testnet.stellar.org": "testnet",
+            "rpc-futurenet.stellar.org": "futurenet",
+        }
+        self.assertEqual(capture_live.APPROVED_ENDPOINTS, expected)
+        for host, network in expected.items():
+            with self.subTest(host=host):
+                endpoint = capture_live.resolve_endpoint(host, None)
+                self.assertEqual(endpoint.host, host)
+                self.assertEqual(endpoint.network, network)
+                self.assertEqual(
+                    endpoint.expected_passphrase,
+                    capture_live.EXPECTED_PASSPHRASES[network],
+                )
+                self.assertEqual(endpoint.url, f"https://{host}")
 
     def test_a_local_endpoint_must_be_http_on_the_loopback(self) -> None:
         endpoint = capture_live.resolve_endpoint(None, "http://127.0.0.1:8099")
         self.assertEqual(endpoint.host, "127.0.0.1")
         self.assertEqual(endpoint.network, "local-mock")
+        self.assertIsNone(endpoint.expected_passphrase)
         # The IPv6 loopback is a loopback address too.
         self.assertEqual(
             capture_live.resolve_endpoint(None, "http://[::1]:8099").host, "::1"
@@ -610,7 +704,12 @@ class CaptureLiveUnitTests(unittest.TestCase):
             self.assertEqual(capture_live.git_revision(REPO_ROOT), "unknown")
 
     def test_a_summary_knows_whether_it_failed(self) -> None:
-        endpoint = capture_live.Endpoint(url="http://127.0.0.1:1", host="127.0.0.1", network="local-mock")
+        endpoint = capture_live.Endpoint(
+            url="http://127.0.0.1:1",
+            host="127.0.0.1",
+            network="local-mock",
+            expected_passphrase=None,
+        )
         summary = capture_live.Summary(endpoint=endpoint)
         self.assertTrue(summary.ok)
         summary.failures.append(("getNetwork", "it failed"))
@@ -750,7 +849,8 @@ class CaptureLiveUnitTests(unittest.TestCase):
             with self.assertRaises(capture_live.CaptureError) as raised:
                 capture_live.run(PACK, output_dir=self.output, local_endpoint=server.url)
         self.assertIn("not an object", str(raised.exception))
-        self.assertFalse(self.output.exists())
+        self.assertTrue((self.output / "captures" / "get-network.json").is_file())
+        self.assertFalse((self.output / "records").exists())
 
     def test_a_get_network_answer_without_a_passphrase_writes_no_record(self) -> None:
         behaviors = {"getNetwork": mock_rpc.BEHAVIOR_NO_PASSPHRASE}
@@ -758,7 +858,8 @@ class CaptureLiveUnitTests(unittest.TestCase):
             with self.assertRaises(capture_live.CaptureError) as raised:
                 capture_live.run(PACK, output_dir=self.output, local_endpoint=server.url)
         self.assertIn("no passphrase", str(raised.exception))
-        self.assertFalse(self.output.exists())
+        self.assertTrue((self.output / "captures" / "get-network.json").is_file())
+        self.assertFalse((self.output / "records").exists())
 
     def test_a_get_network_answer_without_a_protocol_writes_no_record(self) -> None:
         behaviors = {"getNetwork": mock_rpc.BEHAVIOR_NO_PROTOCOL}
@@ -766,7 +867,8 @@ class CaptureLiveUnitTests(unittest.TestCase):
             with self.assertRaises(capture_live.CaptureError) as raised:
                 capture_live.run(PACK, output_dir=self.output, local_endpoint=server.url)
         self.assertIn("no protocolVersion", str(raised.exception))
-        self.assertFalse(self.output.exists())
+        self.assertTrue((self.output / "captures" / "get-network.json").is_file())
+        self.assertFalse((self.output / "records").exists())
 
     def test_a_fixture_that_targets_another_protocol_is_mismatched(self) -> None:
         # The endpoint has moved past protocol 28, so the fixtures that
@@ -840,6 +942,45 @@ class CaptureLiveUnitTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("FAILED", stderr.getvalue())
         self.assertIn("Captures: 1", stdout.getvalue())
+
+    def test_require_matched_fails_when_zero_fixture_checks_executed(self) -> None:
+        endpoint = capture_live.Endpoint(
+            url="http://127.0.0.1:8099",
+            host="127.0.0.1",
+            network="local-mock",
+            expected_passphrase=None,
+        )
+        summary = capture_live.Summary(endpoint=endpoint, fixture_count=1)
+        summary.failures.append(("getNetwork", "endpoint identity was not verified"))
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch.object(capture_live, "run", return_value=summary):
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = capture_live.main(
+                    [str(PACK29), "--output-dir", str(self.output), "--require-matched"]
+                )
+        self.assertEqual(code, 1)
+        self.assertIn("Checks: executed=0 passed=0 failed=0 skipped=1", stdout.getvalue())
+        self.assertIn("--require-matched", stderr.getvalue())
+
+    def test_require_matched_fails_when_a_fixture_check_mismatches(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock_rpc.MockRpcServer(protocol=29) as server:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = capture_live.main(
+                    [
+                        str(PACK),
+                        "--local-endpoint",
+                        server.url,
+                        "--output-dir",
+                        str(self.output),
+                        "--require-matched",
+                    ]
+                )
+        self.assertEqual(code, 1)
+        self.assertIn("Checks: executed=2 passed=0 failed=2 skipped=0", stdout.getvalue())
+        self.assertIn("--require-matched", stderr.getvalue())
 
     def test_the_command_prints_the_reasons_a_fixture_did_not_match(self) -> None:
         # The endpoint has moved past protocol 28, so the fixtures that
@@ -1029,7 +1170,11 @@ class NetworkFactsTests(unittest.TestCase):
             self.attempt(network)
         self.assertIn(self.NOT_RECORDED, str(raised.exception))
         self.assertIn(fragment, str(raised.exception))
-        self.assertFalse(self.output.exists(), "a refused run must write no file")
+        self.assertTrue(
+            (self.output / "captures" / "get-network.json").is_file(),
+            "the exact successful RPC response is preserved even when it cannot support a record",
+        )
+        self.assertFalse((self.output / "records").exists())
 
     def test_a_good_answer_is_recorded(self) -> None:
         self.attempt(self.GOOD)

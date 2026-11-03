@@ -55,6 +55,7 @@ class CliContractTests(unittest.TestCase):
             ("tools/pack/verify_archive.py", "tools/pack/verify_archive.py"),
             ("tools/registry/generate.py", "tools/registry/generate.py"),
             ("tools/release/manifest.py", "tools/release/manifest.py"),
+            ("tools/evidence/capture_live.py", "tools/evidence/capture_live.py"),
             ("tools/validate/validate.py", "tools/validate/validate.py"),
         ]
 
@@ -80,6 +81,13 @@ class CliContractTests(unittest.TestCase):
                 help_opts, doc_opts,
                 f"Options mismatch for {script}: help={help_opts}, docs={doc_opts}",
             )
+
+        structural_start = docs_text.index("## `tools/evidence/record_structural.py`")
+        capture_start = docs_text.index("## `tools/evidence/capture_live.py`")
+        self.assertNotIn("--require-matched", docs_text[structural_start:capture_start])
+        capture_end = docs_text.find("## `tools/", capture_start + 1)
+        capture_section = docs_text[capture_start:capture_end]
+        self.assertIn("--require-matched", capture_section.split("### Options", 1)[0])
 
     # 1. tools/pack/pack.py
     def test_pack_cli(self) -> None:
