@@ -404,6 +404,117 @@ class VerifiedPackTests(Scratch):
                 with contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(self.run_verified(), 1)
 
+    def test_verified_pack_rejects_zero_fixtures(self) -> None:
+        empty = self.root / "empty"
+        empty.mkdir()
+        with self.assertRaisesRegex(pack.PackError, "zero fixtures"):
+            pack.check_verified_evidence(empty)
+
+    def write_protocol29_live_evidence(self, pack_dir: Path) -> None:
+        import datetime
+
+        fixture_dir = pack_dir / "rpc"
+        fixture_dir.mkdir(parents=True)
+        fixture_id = "p29-rpc-version-info-protocol-29"
+        fixture = (
+            f'id = "{fixture_id}"\n'
+            "protocol = 29\n"
+            'surface = "rpc"\n'
+            'category = "network"\n'
+            'description = "version info identifies Protocol 29"\n'
+            'source_reference = "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getVersionInfo"\n'
+            'method = "get-version-info"\n\n'
+            '[[assert]]\nkind = "field-equals"\nfield = "protocolVersion"\nvalue = 29\n'
+        )
+        fixture_path = fixture_dir / f"{fixture_id}.toml"
+        fixture_path.write_text(fixture, encoding="utf-8")
+        fixture_hash = hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+        checked_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        networks = {
+            "testnet": (
+                "soroban-testnet.stellar.org",
+                "Test SDF Network ; September 2015",
+            ),
+            "futurenet": (
+                "rpc-futurenet.stellar.org",
+                "Test SDF Future Network ; October 2022",
+            ),
+        }
+        for network, (host, passphrase) in networks.items():
+            capture_dir = pack_dir / "evidence" / "live" / network / "captures"
+            record_dir = pack_dir / "evidence" / "live" / network / "records"
+            capture_dir.mkdir(parents=True)
+            record_dir.mkdir(parents=True)
+            capture = {
+                "capturedAt": checked_at,
+                "endpointHost": host,
+                "request": {"jsonrpc": "2.0", "id": 2, "method": "getVersionInfo"},
+                "response": {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {"protocolVersion": 29},
+                },
+            }
+            (capture_dir / "get-version-info.json").write_text(
+                json.dumps(capture), encoding="utf-8"
+            )
+            network_capture = {
+                "capturedAt": checked_at,
+                "endpointHost": host,
+                "request": {"jsonrpc": "2.0", "id": 1, "method": "getNetwork"},
+                "response": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {"passphrase": passphrase, "protocolVersion": 29},
+                },
+            }
+            (capture_dir / "get-network.json").write_text(
+                json.dumps(network_capture), encoding="utf-8"
+            )
+            record = {
+                "verificationVersion": 1,
+                "fixtureId": fixture_id,
+                "fixtureSha256": fixture_hash,
+                "method": "live-read-only",
+                "checkedAt": checked_at,
+                "verifier": {"name": "test", "version": "1"},
+                "outcome": "matched",
+                "network": {
+                    "name": network,
+                    "passphrase": passphrase,
+                    "observedProtocol": 29,
+                },
+                "endpointHost": host,
+                "evidenceRef": (
+                    f"{pack_dir.name}/evidence/live/{network}/captures/get-version-info.json"
+                ),
+            }
+            (record_dir / f"{fixture_id}.json").write_text(
+                json.dumps(record), encoding="utf-8"
+            )
+
+    def test_protocol29_verified_pack_requires_both_network_captures(self) -> None:
+        pack_dir = self.root / "protocol-29"
+        pack_dir.mkdir()
+        self.write_protocol29_live_evidence(pack_dir)
+        pack.check_verified_evidence(pack_dir)
+
+        futurenet_records = pack_dir / "evidence" / "live" / "futurenet" / "records"
+        __import__("shutil").rmtree(futurenet_records)
+        with self.assertRaisesRegex(pack.PackError, "Testnet and Futurenet"):
+            pack.check_verified_evidence(pack_dir)
+
+    def test_protocol29_verified_pack_rejects_stale_live_records(self) -> None:
+        pack_dir = self.root / "protocol-29"
+        pack_dir.mkdir()
+        self.write_protocol29_live_evidence(pack_dir)
+        for record_path in (pack_dir / "evidence" / "live").rglob("records/*.json"):
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["checkedAt"] = "2020-01-01T00:00:00Z"
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaisesRegex(pack.PackError, "30-day freshness"):
+            pack.check_verified_evidence(pack_dir)
+
 
 if __name__ == "__main__":
     unittest.main()

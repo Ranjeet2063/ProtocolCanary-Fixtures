@@ -31,13 +31,16 @@ Requires Python 3.11+ and nothing outside the standard library.
 from __future__ import annotations
 
 import argparse
+import datetime
 import gzip
 import hashlib
 import importlib.util
 import io
+import json
 import re
 import sys
 import tarfile
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -187,13 +190,18 @@ def check_limits(members: dict[str, bytes], directories: list[str]) -> None:
 
 
 def check_verified_evidence(pack: Path) -> None:
-    """Require passing CF-04 evidence for every fixture in ``pack``."""
-    evidence_dir = pack / "evidence"
-    if not evidence_dir.is_dir():
-        raise PackError("--verified requires an evidence/ directory")
+    """Require current CF-04 evidence for every fixture in ``pack``.
 
+    Protocol 29 release verification is deliberately stronger than ordinary
+    evidence coverage: every fixture needs a fresh read-only observation on
+    both public test networks, tied to the saved RPC captures. Historical
+    evidence under ``history/`` remains available but cannot satisfy a release
+    gate.
+    """
     try:
         scanned = generate.scan_pack(pack)
+        if not any(path.endswith(".toml") for path in scanned):
+            raise PackError("--verified refuses a pack with zero fixtures")
         registry = generate.build_registry(scanned)
         generate.check_against_schema(registry)
     except generate.PackError as error:
@@ -205,11 +213,25 @@ def check_verified_evidence(pack: Path) -> None:
         fixture["id"]: hashlib.sha256(scanned[fixture["path"]]).hexdigest()
         for fixture in registry["fixtures"]
     }
-    evidence_files = validate.find_evidence_files(evidence_dir)
+    if not fixture_hashes:
+        raise PackError("--verified refuses a pack with zero fixtures")
+
+    evidence_dir = pack / "evidence"
+    if not evidence_dir.is_dir():
+        raise PackError("--verified requires an evidence/ directory")
+
+    evidence_files = [
+        path
+        for path in validate.find_evidence_files(evidence_dir)
+        if "history" not in path.relative_to(evidence_dir).parts
+        and "records" in path.relative_to(evidence_dir).parts
+    ]
     verified: set[str] = set()
+    records: list[tuple[Path, dict]] = []
+    now = datetime.datetime.now(datetime.UTC)
     for path in evidence_files:
         report = validate.Report()
-        record = validate.validate_evidence_file(path, report)
+        record = validate.validate_evidence_file(path, report, now=now)
         if record is None:
             raise PackError(f"invalid verification evidence {path}: {'; '.join(report.errors)}")
         validate.check_evidence_against_fixtures(path, record, fixture_hashes, report)
@@ -218,6 +240,7 @@ def check_verified_evidence(pack: Path) -> None:
         if record["outcome"] != "matched":
             raise PackError(f"verification evidence {path} does not have a passing outcome")
         verified.add(record["fixtureId"])
+        records.append((path, record))
 
     missing = sorted(set(fixture_hashes) - verified)
     if missing:
@@ -225,6 +248,171 @@ def check_verified_evidence(pack: Path) -> None:
             "--verified requires passing evidence records for every fixture; missing "
             + ", ".join(missing)
         )
+
+    if registry["protocol"] == 29:
+        _check_protocol29_live_evidence(pack, registry, fixture_hashes, records, now)
+
+
+_PROTOCOL29_NETWORKS = {
+    "testnet": {
+        "host": "soroban-testnet.stellar.org",
+        "passphrase": "Test SDF Network ; September 2015",
+    },
+    "futurenet": {
+        "host": "rpc-futurenet.stellar.org",
+        "passphrase": "Test SDF Future Network ; October 2022",
+    },
+}
+_FIXTURE_RPC_METHODS = {
+    "get-version-info": "getVersionInfo",
+    "get-network": "getNetwork",
+    "get-latest-ledger": "getLatestLedger",
+}
+_PROTOCOL29_LIVE_FRESHNESS = datetime.timedelta(days=30)
+
+
+def _read_json(path: Path, description: str) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PackError(f"{description} {path} is not readable JSON: {error}") from None
+    if not isinstance(value, dict):
+        raise PackError(f"{description} {path} must contain a JSON object")
+    return value
+
+
+def _check_protocol29_live_evidence(
+    pack: Path,
+    registry: dict,
+    fixture_hashes: dict[str, str],
+    records: list[tuple[Path, dict]],
+    now: datetime.datetime,
+) -> None:
+    """Require one authentic, fresh Testnet and Futurenet record per fixture."""
+    expected: dict[tuple[str, str], tuple[Path, dict]] = {}
+    fixture_methods: dict[str, str] = {}
+    for fixture in registry["fixtures"]:
+        fixture_path = pack / fixture["path"]
+        try:
+            parsed = tomllib.loads(fixture_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+            raise PackError(f"could not read Protocol 29 fixture {fixture_path}: {error}") from None
+        method = parsed.get("method")
+        rpc_method = _FIXTURE_RPC_METHODS.get(method)
+        if rpc_method is None:
+            raise PackError(
+                f"--verified has no live RPC method mapping for Protocol 29 fixture "
+                f"{fixture['id']!r} method {method!r}"
+            )
+        fixture_methods[fixture["id"]] = rpc_method
+
+    for path, record in records:
+        fixture_id = record["fixtureId"]
+        network = record.get("network", {}).get("name") if isinstance(record.get("network"), dict) else None
+        if record.get("method") != "live-read-only":
+            raise PackError(
+                f"Protocol 29 verified evidence must be live-read-only: {path}"
+            )
+        if network not in _PROTOCOL29_NETWORKS:
+            raise PackError(
+                f"Protocol 29 verified evidence must identify testnet or futurenet: {path}"
+            )
+        key = (fixture_id, network)
+        if key in expected:
+            raise PackError(
+                f"duplicate Protocol 29 live record for fixture {fixture_id!r} on {network}"
+            )
+        expected[key] = (path, record)
+
+    missing = [
+        f"{fixture_id} on {network}"
+        for fixture_id in fixture_hashes
+        for network in _PROTOCOL29_NETWORKS
+        if (fixture_id, network) not in expected
+    ]
+    if missing:
+        raise PackError(
+            "Protocol 29 --verified requires live-read-only records for every fixture "
+            "on Testnet and Futurenet; missing " + ", ".join(missing)
+        )
+
+    pack_parent = pack.resolve().parent
+    for (fixture_id, network), (record_path, record) in expected.items():
+        required_network = _PROTOCOL29_NETWORKS[network]
+        if record["outcome"] != "matched":
+            raise PackError(f"Protocol 29 live evidence is not matched: {record_path}")
+        if record.get("fixtureSha256") != fixture_hashes[fixture_id]:
+            raise PackError(f"Protocol 29 live evidence has the wrong fixture digest: {record_path}")
+        if record.get("endpointHost") != required_network["host"]:
+            raise PackError(f"Protocol 29 live evidence has the wrong endpoint host: {record_path}")
+        network_record = record.get("network", {})
+        if (
+            network_record.get("passphrase") != required_network["passphrase"]
+            or network_record.get("observedProtocol") != 29
+        ):
+            raise PackError(f"Protocol 29 live evidence has the wrong network identity: {record_path}")
+        if "live" not in record_path.relative_to(pack / "evidence").parts:
+            raise PackError(f"Protocol 29 live record is outside evidence/live/: {record_path}")
+        relative_record_path = record_path.relative_to(pack / "evidence").parts
+        if relative_record_path[:3] != ("live", network, "records"):
+            raise PackError(
+                f"Protocol 29 live record is not stored under evidence/live/{network}/records/: "
+                f"{record_path}"
+            )
+        age = now - validate._parse_instant(record["checkedAt"])
+        if age < -validate.CLOCK_SKEW_TOLERANCE or age > _PROTOCOL29_LIVE_FRESHNESS:
+            raise PackError(
+                f"Protocol 29 live evidence is outside the 30-day freshness window: {record_path}"
+            )
+
+        reference = record.get("evidenceRef")
+        expected_prefix = f"{pack.name}/evidence/live/{network}/captures/"
+        if not isinstance(reference, str) or not reference.startswith(expected_prefix):
+            raise PackError(f"Protocol 29 live evidenceRef is not a network capture path: {record_path}")
+        capture_path = pack_parent / reference
+        if not capture_path.is_file() or capture_path.resolve().parent != (
+            pack / "evidence" / "live" / network / "captures"
+        ).resolve():
+            raise PackError(f"Protocol 29 evidenceRef does not resolve to a capture: {record_path}")
+        capture = _read_json(capture_path, "Protocol 29 capture")
+        if capture.get("capturedAt") != record["checkedAt"]:
+            raise PackError(f"Protocol 29 capture timestamp does not match its record: {record_path}")
+        if capture.get("endpointHost") != required_network["host"]:
+            raise PackError(f"Protocol 29 capture host does not match its record: {capture_path}")
+        request = capture.get("request")
+        response = capture.get("response")
+        result = response.get("result") if isinstance(response, dict) else None
+        if not isinstance(request, dict) or not isinstance(response, dict) or not isinstance(result, dict):
+            raise PackError(f"Protocol 29 capture lacks a JSON-RPC request or result: {capture_path}")
+        if (
+            request.get("jsonrpc") != "2.0"
+            or response.get("jsonrpc") != "2.0"
+            or request.get("id") != response.get("id")
+            or request.get("method") != fixture_methods[fixture_id]
+            or result.get("protocolVersion") != 29
+        ):
+            raise PackError(f"Protocol 29 capture does not match its fixture assertion: {capture_path}")
+
+        network_capture_path = capture_path.with_name("get-network.json")
+        network_capture = _read_json(network_capture_path, "Protocol 29 network identity capture")
+        net_request = network_capture.get("request")
+        net_response = network_capture.get("response")
+        net_result = net_response.get("result") if isinstance(net_response, dict) else None
+        if (
+            network_capture.get("endpointHost") != required_network["host"]
+            or not isinstance(net_request, dict)
+            or net_request.get("jsonrpc") != "2.0"
+            or net_request.get("method") != "getNetwork"
+            or not isinstance(net_response, dict)
+            or net_response.get("jsonrpc") != "2.0"
+            or net_request.get("id") != net_response.get("id")
+            or not isinstance(net_result, dict)
+            or net_result.get("passphrase") != required_network["passphrase"]
+            or net_result.get("protocolVersion") != 29
+        ):
+            raise PackError(
+                f"Protocol 29 network identity capture does not match {network}: {network_capture_path}"
+            )
 
 
 def _tar_info(name: str, *, directory: bool, size: int = 0) -> tarfile.TarInfo:

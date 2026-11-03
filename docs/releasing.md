@@ -12,22 +12,28 @@ cryptographically attested, and consistently tagged.
 
 ## 1. Overview and Automation Boundary
 
-The release procedure is split between maintainer pre-release checks and automated
-CI execution:
+The release procedure separates tag validation and attestation from GitHub
+Release asset publication:
 
 - **Manual steps (maintainer):**
   1. Complete pre-release quality and consistency checks.
-  2. Select the release version (Semantic Versioning `MAJOR.MINOR.PATCH`).
+  2. Select the protocol pack and release version (Semantic Versioning `MAJOR.MINOR.PATCH`).
   3. Update `CHANGELOG.md` with the release version and UTC date.
-  4. Create and push an immutable git tag (`vX.Y.Z` or `protocol-NN`).
-- **Automated steps (`.github/workflows/release-pack.yml`):**
-  1. Builds the release archive twice in independent passes/directories.
-  2. Asserts bit-for-bit identical archive hashes (SHA-256).
-  3. Extracts and verifies archive integrity against the pack schema and digest.
-  4. Generates the release manifest (`.manifest.json`) and SHA-256 checksums.
-  5. Cryptographically attests the archive and manifest using GitHub's build
-     provenance attestation (`actions/attest-build-provenance`).
-  6. Publishes the release assets to GitHub Releases.
+  4. Ensure the candidate commit is on protected `main`, then create and push
+     its protocol-scoped tag: `fixtures-p28-vX.Y.Z` or `fixtures-p29-vX.Y.Z`.
+  5. After the tag workflow succeeds, publish a GitHub Release for that exact
+     tag when ready to distribute the assets.
+- **Tag-push automation (`.github/workflows/release-pack.yml`):** selects the
+  pack from the scoped tag, checks that the tag ref and commit agree and that
+  the commit is in `origin/main` history, builds twice, verifies the archive,
+  creates the manifest and checksum, then attests the archive and manifest.
+  A tag push does not publish GitHub Release assets.
+- **Manual dispatch:** builds and verifies a candidate only. It receives no
+  write permissions and does not attest or publish.
+- **Release-published automation:** independently validates the exact release
+  tag and main-history commit, rebuilds and re-verifies the candidate, then a
+  separate narrowly permissioned job uploads the three assets to that release.
+  This event does not create a tag or a GitHub Release.
 
 ---
 
@@ -45,7 +51,7 @@ python3 tools/validate/validate.py
 
 Expected output:
 ```
-OK: 31 fixture file(s) valid across 3 root(s)
+OK: 94 fixture file(s) valid across 3 root(s)
 ```
 
 ### Step 2.2: Fixtures count badge freshness
@@ -57,7 +63,7 @@ python3 tools/badge/badge.py --check
 
 Expected output:
 ```
-OK: README.md fixtures badge is current (31 fixture file(s))
+OK: README.md fixtures badge is current (94 fixture file(s))
 ```
 
 ### Step 2.3: Repository test suite
@@ -80,18 +86,29 @@ For non-empty packs (such as `protocol-28`):
 python3 tools/registry/generate.py protocol-28 --stdout
 ```
 
-For intentionally empty baselines (such as `protocol-29`), supply `--allow-empty`
-and the matching `--protocol`:
+An empty pack cannot be promoted as verified. Do not generate a release registry
+for an empty baseline. Protocol 29 must have non-empty, sourced fixture coverage
+before a verified release can be built:
 
 ```bash
-python3 tools/registry/generate.py protocol-29 --allow-empty --protocol 29 --stdout
+python3 tools/registry/generate.py protocol-29 --stdout
 ```
 
-### Step 2.5: CHANGELOG and version selection
+### Step 2.5: Protocol 29 live coverage
+
+Before selecting Protocol 29 for a release, require a current matched
+`live-read-only` record and linked raw capture for every fixture on both Testnet
+and Futurenet. Records must identify the actual network, endpoint host, UTC
+observation time, observed protocol 29, fixture SHA-256 and evidence reference.
+The release packer enforces both networks and the 30-day live-evidence freshness
+window; structural records and records under `history/` do not satisfy it.
+Protocol 28 releases keep their existing unverified packing behavior.
+
+### Step 2.6: CHANGELOG and version selection
 1. Choose an exact version string following `MAJOR.MINOR.PATCH` (e.g. `0.1.0`).
 2. Update the `## [Unreleased]` section in [`CHANGELOG.md`](../CHANGELOG.md) by
    creating a new heading for the version with the current UTC date in
-   `YYYY-MM-DD` format (e.g. `## [0.1.0] - 2026-10-21`).
+   `YYYY-MM-DD` format (for example, `## [0.1.0] - YYYY-MM-DD`).
 3. Commit the changelog change and ensure the branch is merged into `main`.
 
 ---
@@ -108,13 +125,20 @@ Run `tools/pack/pack.py`:
 python3 tools/pack/pack.py protocol-28 --version 0.1.0 --output-dir dist
 ```
 
+For a Protocol 29 candidate, include `--verified`; this fails closed unless
+every fixture has current live evidence on both Testnet and Futurenet:
+
+```bash
+python3 tools/pack/pack.py protocol-29 --version 0.1.0 --output-dir dist --verified
+```
+
 Expected output:
 ```
 OK: wrote dist/protocolcanary-fixtures-0.1.0.tar.gz
-sha256   d3275cd8f3242debc7edbab0cd30e9cbc564a0f335e0ca354741fcf62cc32207
-bytes    20661
-entries  40
-digest   sha256:0a7e5a5743b34cb334d2c8d32d4617c7ab6bec7cceb531b229483ebad437f52a
+sha256   25db2c1e3cdeeba302cf4dcc3d0c28d3b3728ae0260d990dcba51bcd13b81e92
+bytes    44774
+entries  106
+digest   sha256:7bfce5afab4874b3e1622ef313dc4c398193d037d80fda306129677e556f1750
 ```
 
 ### Step 3.2: Verify the archive contents
@@ -126,7 +150,7 @@ python3 tools/pack/verify_archive.py dist/protocolcanary-fixtures-0.1.0.tar.gz
 
 Expected output:
 ```
-OK: protocolcanary-fixtures-0.1.0.tar.gz: 31 fixture(s), 31 file(s) valid; registry and pack digest match
+OK: protocolcanary-fixtures-0.1.0.tar.gz: 93 fixture(s), 93 file(s) valid; registry and pack digest match
 ```
 
 ### Step 3.3: Generate the release manifest
@@ -154,7 +178,7 @@ python3 tools/pack/verify_archive.py dist/protocolcanary-fixtures-0.1.0.tar.gz \
 
 Expected output:
 ```
-OK: protocolcanary-fixtures-0.1.0.tar.gz: 31 fixture(s), 31 file(s) valid; registry and pack digest match
+OK: protocolcanary-fixtures-0.1.0.tar.gz: 93 fixture(s), 93 file(s) valid; registry and pack digest match
 ```
 
 Verify the checksum file:
@@ -170,42 +194,70 @@ protocolcanary-fixtures-0.1.0.tar.gz: OK
 
 ---
 
-## 4. Tag Naming Rules and Immutability
+## 4. Tag Naming Rules and Required Repository Protection
 
 ### Tag naming convention
-Releases are triggered by pushing a git tag matching one of two patterns:
-- Version tags: `v<MAJOR>.<MINOR>.<PATCH>` (e.g. `v0.1.0`)
-- Protocol tags: `protocol-<NN>` (e.g. `protocol-28`)
+Releases are selected with an explicit protocol in the tag:
+- Protocol 28: `fixtures-p28-v<MAJOR>.<MINOR>.<PATCH>`
+- Protocol 29: `fixtures-p29-v<MAJOR>.<MINOR>.<PATCH>`
 
-### Immutability guarantee
-**Published tags are never moved and never deleted.**
+For example, `fixtures-p28-v0.1.0` selects only `protocol-28`, and
+`fixtures-p29-v0.1.0` selects only `protocol-29`. Unscoped tags such as
+`v0.1.0`, `fixtures-v0.1.0` and `protocol-29` are rejected by the release
+selector; they never default to Protocol 28. The manual workflow dispatch
+requires both a protocol choice and a semantic version and only builds the
+candidate. It does not attest or publish assets.
 
-Downstream consumers, reproducibility proofs, and attestation certificates bind
-strictly to specific git tags and commit hashes. Once a tag is pushed to
-`upstream`:
-- It must not be deleted.
-- It must not be pointed to a different commit.
-- Any change or fix requires a new, incremented release version.
+### Required tag ruleset
+A GitHub repository tag ruleset is required for release tags (`fixtures-p28-v*`
+and `fixtures-p29-v*`). Configure it to restrict tag creation to authorized
+maintainers and block tag updates and deletion. Protect `main` with the
+repository's normal review and status-check rules.
+
+The workflow also checks that a tag event's exact ref and commit match and that
+the tagged commit is an ancestor of `origin/main`. This is defense in depth; a
+workflow check alone does not protect against untrusted tag content, because a
+tag can select the workflow file and scripts that are run. The GitHub tag
+ruleset restricting creation, updates and deletion is therefore required, not
+optional. Do not claim release safety from the workflow check alone.
+
+Downstream consumers, reproducibility proofs, and attestations bind to the tag
+and commit. Never move or delete a published tag; any correction requires a
+new, incremented version tag.
 
 ---
 
 ## 5. Publishing the Release
 
-Once pre-release checks pass and the commit is on `main`, create and push the tag:
+Once pre-release checks pass and the candidate commit is on protected `main`,
+create and push the protocol-scoped tag. For a Protocol 29 release:
 
 ```bash
-git tag -a v0.1.0 -m "Release v0.1.0"
-git push upstream v0.1.0
+git tag -a fixtures-p29-v0.1.0 -m "Protocol 29 fixture pack 0.1.0"
+git push upstream fixtures-p29-v0.1.0
 ```
 
-The `.github/workflows/release-pack.yml` workflow triggers automatically on tag
-push:
-1. It builds the pack twice in independent directories (`/tmp/build1` and `/tmp/build2`)
-   and asserts bit-for-bit identical output (`cmp`).
-2. It generates `protocolcanary-fixtures-<version>.manifest.json` and
-   `protocolcanary-fixtures-<version>.sha256`.
-3. It generates build provenance attestations for both the archive and manifest.
-4. It publishes the release assets to GitHub Releases.
+Use `fixtures-p28-v0.1.0` for Protocol 28. A successful tag-push workflow
+builds and attests the archive and manifest, but does not upload release assets.
+After reviewing its result, create and publish a GitHub Release using that same
+scoped tag. The `release.published` workflow event rebuilds and verifies the
+candidate; only its `publish` job has `contents: write` and uploads exactly
+these three assets to the matching GitHub Release:
+
+1. `protocolcanary-fixtures-<version>.tar.gz`
+2. `protocolcanary-fixtures-<version>.manifest.json`
+3. `protocolcanary-fixtures-<version>.sha256`
+
+GitHub build-provenance attestations are generated on the tag-push workflow for
+the archive and manifest. Release uploads do not replace existing assets; a
+duplicate asset name fails. Manual dispatches receive no write permissions and
+cannot attest or publish.
+
+On tag push, `.github/workflows/release-pack.yml` builds twice in independent
+directories (`/tmp/build1` and `/tmp/build2`), checks bit-for-bit identity,
+verifies the archive and its manifest/checksum, and attests the archive and
+manifest. On release publication, it revalidates the exact tag/ref and commit,
+rebuilds and re-verifies the assets, then uploads them to that tag's release.
 
 ---
 
@@ -259,7 +311,8 @@ If a defect is discovered in a published release archive or manifest:
 3. **Bump the patch version.** Update `CHANGELOG.md` with an incremented patch
    version (e.g. `0.1.1`), explicitly stating that it supersedes `0.1.0` and
    describing the issue resolved.
-4. **Publish the superseding release.** Merge to `main` and tag the new patch
-   version (e.g. `v0.1.1`).
+4. **Publish the superseding release.** Merge to `main` and use a new
+   protocol-scoped patch tag (e.g. `fixtures-p29-v0.1.1` or
+   `fixtures-p28-v0.1.1`).
 5. **Update release notes.** Edit the GitHub release notes of the superseded
    release to point users to the new version.
