@@ -21,28 +21,38 @@ on:
           - "28"
           - "29"
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
+permissions: {}
 
 jobs:
-  release-pack:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      pack: ${{ steps.selection.outputs.pack }}
+      version: ${{ steps.selection.outputs.version }}
+      verified: ${{ steps.selection.outputs.verified }}
+      tag: ${{ steps.selection.outputs.tag }}
     steps:
-      - name: Checkout repository
+      - name: Checkout release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11.16"
 
-      - name: Determine release version and pack
-        id: vars
+      - name: Select pack and validate release ref
+        id: selection
         env:
           EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
           DISPATCH_PROTOCOL: ${{ inputs.protocol }}
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
@@ -54,14 +64,17 @@ jobs:
           else
             python3 tools/release/select_pack.py \
               --event "$EVENT_NAME" \
-              --tag "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+              --tag "$RELEASE_TAG" \
+              --ref "$EVENT_REF" \
+              --sha "$EVENT_SHA" \
+              --main-ref refs/remotes/origin/main >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build run-1 in clean directory
         env:
-          PACK: ${{ steps.vars.outputs.pack }}
-          VERSION: ${{ steps.vars.outputs.version }}
-          VERIFIED: ${{ steps.vars.outputs.verified }}
+          PACK: ${{ steps.selection.outputs.pack }}
+          VERSION: ${{ steps.selection.outputs.version }}
+          VERIFIED: ${{ steps.selection.outputs.verified }}
         run: |
           mkdir -p /tmp/build1
           VERIFY_ARGS=()
@@ -70,9 +83,9 @@ jobs:
 
       - name: Build run-2 in separate clean directory
         env:
-          PACK: ${{ steps.vars.outputs.pack }}
-          VERSION: ${{ steps.vars.outputs.version }}
-          VERIFIED: ${{ steps.vars.outputs.verified }}
+          PACK: ${{ steps.selection.outputs.pack }}
+          VERSION: ${{ steps.selection.outputs.version }}
+          VERIFIED: ${{ steps.selection.outputs.verified }}
         run: |
           mkdir -p /tmp/build2
           VERIFY_ARGS=()
@@ -80,8 +93,10 @@ jobs:
           python3 tools/pack/pack.py "$PACK" --version "$VERSION" --output-dir /tmp/build2 "${VERIFY_ARGS[@]}"
 
       - name: Assert bit-for-bit identical hashes across independent builds
+        env:
+          VERSION: ${{ steps.selection.outputs.version }}
         run: |
-          ARCHIVE="protocolcanary-fixtures-${{ steps.vars.outputs.version }}.tar.gz"
+          ARCHIVE="protocolcanary-fixtures-${VERSION}.tar.gz"
           echo "Comparing /tmp/build1/$ARCHIVE and /tmp/build2/$ARCHIVE"
           cmp "/tmp/build1/$ARCHIVE" "/tmp/build2/$ARCHIVE"
 
@@ -98,44 +113,128 @@ jobs:
           echo "Verified bit-for-bit reproducible archive hash: $HASH1"
 
       - name: Verify archive integrity against pack schema and digest
-        run: |
-          ARCHIVE="/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.tar.gz"
-          python3 tools/pack/verify_archive.py "$ARCHIVE"
+        env:
+          VERSION: ${{ steps.selection.outputs.version }}
+        run: python3 tools/pack/verify_archive.py "/tmp/build1/protocolcanary-fixtures-${VERSION}.tar.gz"
 
       - name: Generate release manifest and SHA-256 checksums
+        env:
+          VERSION: ${{ steps.selection.outputs.version }}
+          REVISION: ${{ github.sha }}
         run: |
-          ARCHIVE="/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.tar.gz"
-          MANIFEST="/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.manifest.json"
-          CHECKSUM="/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.sha256"
-
+          ARCHIVE="/tmp/build1/protocolcanary-fixtures-${VERSION}.tar.gz"
+          MANIFEST="/tmp/build1/protocolcanary-fixtures-${VERSION}.manifest.json"
+          CHECKSUM="/tmp/build1/protocolcanary-fixtures-${VERSION}.sha256"
           python3 tools/release/manifest.py "$ARCHIVE" \
-            --revision "${{ github.sha }}" \
+            --revision "$REVISION" \
             --output "$MANIFEST" \
             --sha256-file "$CHECKSUM"
 
-      - name: Verify archive matches release manifest and checksum
+      - name: Verify archive against manifest and checksum
+        env:
+          VERSION: ${{ steps.selection.outputs.version }}
         run: |
-          ARCHIVE="/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.tar.gz"
-          MANIFEST="/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.manifest.json"
-          CHECKSUM="/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.sha256"
-
+          ARCHIVE="/tmp/build1/protocolcanary-fixtures-${VERSION}.tar.gz"
+          MANIFEST="/tmp/build1/protocolcanary-fixtures-${VERSION}.manifest.json"
+          CHECKSUM="/tmp/build1/protocolcanary-fixtures-${VERSION}.sha256"
           python3 tools/pack/verify_archive.py "$ARCHIVE" --manifest "$MANIFEST"
-          (cd /tmp/build1 && sha256sum -c "$CHECKSUM")
+          (cd /tmp/build1 && sha256sum -c "$(basename "$CHECKSUM")")
 
-      - name: Generate build provenance attestations
-        if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/fixtures-p'))
+      - name: Upload verified release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-candidate
+          path: |
+            /tmp/build1/protocolcanary-fixtures-${{ steps.selection.outputs.version }}.tar.gz
+            /tmp/build1/protocolcanary-fixtures-${{ steps.selection.outputs.version }}.manifest.json
+            /tmp/build1/protocolcanary-fixtures-${{ steps.selection.outputs.version }}.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/fixtures-p')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download verified release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-candidate
+          path: dist
+
+      - name: Attest archive and manifest
         uses: actions/attest-build-provenance@c074443f1b5fb4a4829eec0244487a870fa861e6 # v2.2.3
         with:
           subject-path: |
-            /tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.tar.gz
-            /tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.manifest.json
+            dist/protocolcanary-fixtures-${{ needs.build.outputs.version }}.tar.gz
+            dist/protocolcanary-fixtures-${{ needs.build.outputs.version }}.manifest.json
+
+  publish:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11.16"
+
+      - name: Revalidate exact published release ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SELECTED_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python3 tools/release/select_pack.py \
+            --event "$EVENT_NAME" \
+            --tag "$RELEASE_TAG" \
+            --ref "$EVENT_REF" \
+            --sha "$EVENT_SHA" \
+            --main-ref refs/remotes/origin/main
+          case "$RELEASE_TAG" in
+            *-v"$SELECTED_VERSION") ;;
+            *) echo "Release tag version does not match the built artifact" >&2; exit 1 ;;
+          esac
+
+      - name: Download verified release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-candidate
+          path: dist
+
+      - name: Reverify release candidate
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          ARCHIVE="dist/protocolcanary-fixtures-${VERSION}.tar.gz"
+          MANIFEST="dist/protocolcanary-fixtures-${VERSION}.manifest.json"
+          CHECKSUM="dist/protocolcanary-fixtures-${VERSION}.sha256"
+          python3 tools/pack/verify_archive.py "$ARCHIVE" --manifest "$MANIFEST"
+          (cd dist && sha256sum -c "$(basename "$CHECKSUM")")
 
       - name: Publish release assets
-        if: github.event_name == 'release'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            "/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.tar.gz" \
-            "/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.manifest.json" \
-            "/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.sha256"
+          gh release upload "$RELEASE_TAG" \
+            "dist/protocolcanary-fixtures-${VERSION}.tar.gz" \
+            "dist/protocolcanary-fixtures-${VERSION}.manifest.json" \
+            "dist/protocolcanary-fixtures-${VERSION}.sha256" \
+            --repo "$GITHUB_REPOSITORY"

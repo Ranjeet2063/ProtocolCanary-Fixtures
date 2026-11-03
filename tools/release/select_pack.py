@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
+from pathlib import Path
 
 _VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 _TAG = re.compile(rf"fixtures-p(28|29)-v({_VERSION})")
@@ -17,6 +19,62 @@ _TAG = re.compile(rf"fixtures-p(28|29)-v({_VERSION})")
 
 class SelectionError(ValueError):
     """An event does not unambiguously select a supported pack and version."""
+
+
+def validate_release_ref(
+    *,
+    event: str,
+    tag: str,
+    ref: str,
+    sha: str,
+    main_ref: str = "refs/remotes/origin/main",
+    repo: Path | str = ".",
+) -> dict[str, str]:
+    """Select a tag release and require its exact commit to be in main history."""
+    selected = select(event=event, tag=tag)
+    expected_ref = f"refs/tags/{tag}"
+    if ref != expected_ref:
+        raise SelectionError(
+            f"event ref {ref!r} does not exactly match release tag {expected_ref!r}"
+        )
+
+    if not re.fullmatch(r"[0-9a-f]{40,64}", sha):
+        raise SelectionError("event commit must be a full hexadecimal commit ID")
+
+    try:
+        tag_commit = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{expected_ref}^{{commit}}"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise SelectionError(f"cannot resolve release tag {expected_ref!r}") from error
+
+    if tag_commit != sha:
+        raise SelectionError(
+            f"release tag resolves to {tag_commit}, not event commit {sha}"
+        )
+
+    try:
+        ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", tag_commit, main_ref],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        raise SelectionError("could not verify release commit ancestry") from error
+    if ancestry.returncode != 0:
+        raise SelectionError(
+            f"release commit {tag_commit} is not in protected main history ({main_ref})"
+        )
+
+    selected["tag"] = tag
+    selected["commit"] = tag_commit
+    return selected
 
 
 def select(*, event: str, tag: str = "", protocol: str = "", version: str = "") -> dict[str, str]:
@@ -54,18 +112,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tag", default="")
     parser.add_argument("--protocol", default="")
     parser.add_argument("--version", default="")
+    parser.add_argument("--ref", default="")
+    parser.add_argument("--sha", default="")
+    parser.add_argument("--main-ref", default="refs/remotes/origin/main")
     return parser
 
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
     try:
-        selected = select(
-            event=args.event,
-            tag=args.tag,
-            protocol=args.protocol,
-            version=args.version,
-        )
+        if args.event in ("push", "release"):
+            if not args.ref or not args.sha:
+                raise SelectionError("tag events require release-ref validation with --ref and --sha")
+            if args.protocol or args.version:
+                raise SelectionError("tag events select both protocol and version from the tag")
+            selected = validate_release_ref(
+                event=args.event,
+                tag=args.tag,
+                ref=args.ref,
+                sha=args.sha,
+                main_ref=args.main_ref,
+            )
+        else:
+            if args.ref or args.sha:
+                raise SelectionError("manual dispatch does not accept a release ref or commit")
+            selected = select(
+                event=args.event,
+                tag=args.tag,
+                protocol=args.protocol,
+                version=args.version,
+            )
     except SelectionError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
