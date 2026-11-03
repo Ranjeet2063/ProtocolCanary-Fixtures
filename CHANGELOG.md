@@ -1156,6 +1156,20 @@ discussion and diff. New entries must include that link; see
   actually runnable rather than merely well-formed TOML. See that
   repository's own changelog for the corresponding entry. ([757e1e7])
 
+## [0.1.1] - 2026-11-03
+
+Protocol 29 fixture pack 0.1.1 supersedes the unpublished 0.1.0
+release attempt. It contains one verified RPC network-identity fixture
+for Testnet and Futurenet, not general Protocol 29 compatibility coverage.
+
+### Fixed
+
+- Corrected the pinned `actions/attest-build-provenance` v2.2.3
+  commit after the 0.1.0 tag workflow could not resolve the action.
+  The protected `fixtures-p29-v0.1.0` tag remains unchanged and
+  unpublished. See
+  [PR #486](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/486).
+
 ## [0.1.0] - 2026-11-03
 
 Protocol 29 0.1.0 covers one verified RPC network-identity fixture on Testnet and Futurenet. It does not establish broader protocol compatibility. Publication is a separate maintainer decision.
