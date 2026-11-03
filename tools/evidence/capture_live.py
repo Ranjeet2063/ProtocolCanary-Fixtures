@@ -38,10 +38,10 @@ What it never does:
   protocol the fixture targets; anything else is ``mismatched``, and the
   reasons are printed.
 
-The schedule, the exact endpoints and the storage design are maintainer
-decisions (issue #368 lists them as still open). The endpoint list and the
-output layout are therefore constants in this file, and the workflow that
-calls it is one file with one cron line and one upload step.
+The Protocol 28 scheduled workflow remains separate and unchanged. Protocol
+29 captures use the explicit Testnet and Futurenet endpoint allowlist below
+and their own workflow; both workflows upload evidence artifacts without
+writing to the repository.
 
 Usage:
     python3 tools/evidence/capture_live.py PACK
@@ -90,6 +90,7 @@ READ_ONLY_METHODS = ("getNetwork", "getLatestLedger", "getVersionInfo")
 FIXTURE_METHODS = {
     "get-network": "getNetwork",
     "get-latest-ledger": "getLatestLedger",
+    "get-version-info": "getVersionInfo",
 }
 
 # The file name each capture is saved under, matching the hand-taken corpus.
@@ -99,12 +100,23 @@ CAPTURE_FILE_NAMES = {
     "getVersionInfo": "get-version-info",
 }
 
-# The approved endpoints: host name -> the network name a record carries.
-# The exact endpoints are a maintainer decision (issue #368); this is the
-# public Testnet endpoint the committed corpus was captured from, and the
-# only host the corpus test allows. A host that is not in this mapping is
-# refused: the tool never calls an endpoint that was not approved here.
-APPROVED_ENDPOINTS = {"soroban-testnet.stellar.org": "testnet"}
+# Official Stellar SDK network defaults:
+# https://github.com/stellar/js-stellar-sdk
+# The expected network passphrases are set in:
+# https://github.com/stellar/quickstart/blob/main/start
+# A host that is not in this mapping is refused. Keep Testnet as the default
+# to preserve the existing Protocol 28 evidence workflow.
+TESTNET_PASSPHRASE = "Test SDF Network ; September 2015"
+FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022"
+APPROVED_ENDPOINTS = {
+    "soroban-testnet.stellar.org": "testnet",
+    "rpc-futurenet.stellar.org": "futurenet",
+}
+EXPECTED_PASSPHRASES = {
+    "testnet": TESTNET_PASSPHRASE,
+    "futurenet": FUTURENET_PASSPHRASE,
+}
+DEFAULT_ENDPOINT = "soroban-testnet.stellar.org"
 
 # The loopback addresses a local mock endpoint may live on.
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
@@ -138,6 +150,7 @@ class Endpoint:
     url: str
     host: str
     network: str
+    expected_passphrase: str | None = None
 
 
 @dataclass
@@ -150,6 +163,7 @@ class Summary:
     failures: list[tuple[str, str]] = field(default_factory=list)
     outcomes: list[tuple[str, str, list[str]]] = field(default_factory=list)
     documents: list[tuple[Path, dict]] = field(default_factory=list)
+    fixture_count: int = 0
 
     @property
     def ok(self) -> bool:
@@ -205,7 +219,12 @@ def resolve_endpoint(endpoint: str | None, local_endpoint: str | None) -> Endpoi
                 f"({' or '.join(LOOPBACK_HOSTS)}), got {host!r}; the approved "
                 f"endpoints are {sorted(APPROVED_ENDPOINTS)}"
             )
-        return Endpoint(url=local_endpoint, host=host, network="local-mock")
+        return Endpoint(
+            url=local_endpoint,
+            host=host,
+            network="local-mock",
+            expected_passphrase=None,
+        )
     if endpoint is not None:
         if endpoint not in APPROVED_ENDPOINTS:
             raise CaptureError(
@@ -214,8 +233,14 @@ def resolve_endpoint(endpoint: str | None, local_endpoint: str | None) -> Endpoi
             )
         host = endpoint
     else:
-        host = sorted(APPROVED_ENDPOINTS)[0]
-    return Endpoint(url=f"https://{host}", host=host, network=APPROVED_ENDPOINTS[host])
+        host = DEFAULT_ENDPOINT
+    network = APPROVED_ENDPOINTS[host]
+    return Endpoint(
+        url=f"https://{host}",
+        host=host,
+        network=network,
+        expected_passphrase=EXPECTED_PASSPHRASES[network],
+    )
 
 
 def capture_method(url: str, method: str, request_id: int, timeout: float) -> dict:
@@ -597,7 +622,7 @@ def run(
             methods.append(method)
 
     target_dir = output_dir if output_dir is not None else pack / OUTPUT_DIRNAME
-    summary = Summary(endpoint=target)
+    summary = Summary(endpoint=target, fixture_count=len(fixtures))
 
     captures: dict[str, tuple[dict, object]] = {}
     for request_id, method in enumerate(methods, start=1):
@@ -611,7 +636,23 @@ def run(
         captures[method] = (capture, result)
         summary.captures.append(target_dir / "captures" / f"{CAPTURE_FILE_NAMES[method]}.json")
 
+    capture_documents = [
+        (
+            target_dir / "captures" / f"{CAPTURE_FILE_NAMES[method]}.json",
+            capture,
+        )
+        for method, (capture, _result) in captures.items()
+    ]
+
+    def preserve_captures() -> None:
+        # A response is still evidence when the check cannot produce a
+        # verification record. Keep what the endpoint actually returned.
+        summary.documents = list(capture_documents)
+        if not dry_run:
+            write_documents(capture_documents)
+
     if "getNetwork" not in captures:
+        preserve_captures()
         reason = "; ".join(message for _, message in summary.failures)
         raise CaptureError(
             "the getNetwork call failed, so the network facts are unknown and no "
@@ -620,17 +661,30 @@ def run(
 
     network_result = captures["getNetwork"][1]
     if not isinstance(network_result, dict):
+        preserve_captures()
         raise CaptureError("the getNetwork answer is not an object, so no record was written")
     passphrase = network_result.get("passphrase")
     observed = network_result.get("protocolVersion")
     if not isinstance(passphrase, str) or not passphrase:
+        preserve_captures()
         raise CaptureError(
             "the getNetwork answer carries no passphrase, so no record was written"
         )
     if isinstance(observed, bool) or not isinstance(observed, int) or observed < 0:
+        preserve_captures()
         raise CaptureError(
             "the getNetwork answer carries no protocolVersion, so no record was written"
         )
+    if target.expected_passphrase is not None and passphrase != target.expected_passphrase:
+        summary.failures.append(
+            (
+                "getNetwork",
+                f"the endpoint passphrase does not identify {target.network}; "
+                "raw captures were kept and no verification record was written",
+            )
+        )
+        preserve_captures()
+        return summary
     network = {
         "name": target.network,
         "passphrase": passphrase,
@@ -703,7 +757,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="capture_live.py",
         description=(
             "Capture live read-only RPC evidence and write CF-04 verification "
-            "records for the RPC fixtures of a pack (issue #368). Only the "
+            "records for the RPC fixtures of a pack. Only the "
             "approved read-only methods are called, no credentials are used, and "
             "a record is written only for a capture that actually happened."
         ),
@@ -724,7 +778,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="HOST",
         help=(
             "the approved endpoint to call (default: "
-            f"{sorted(APPROVED_ENDPOINTS)[0]})"
+            f"{DEFAULT_ENDPOINT})"
         ),
     )
     parser.add_argument(
@@ -768,6 +822,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="make the calls and print what would be written, but write nothing",
     )
+    parser.add_argument(
+        "--require-matched",
+        action="store_true",
+        help=(
+            "return failure unless at least one fixture check executed and every "
+            "fixture check matched with no skipped fixtures"
+        ),
+    )
     return parser
 
 
@@ -785,10 +847,20 @@ def main(argv: list[str]) -> int:
             dry_run=args.dry_run,
         )
     except CaptureError as error:
+        try:
+            skipped = len(load_rpc_fixtures(args.pack))
+        except CaptureError:
+            skipped = 0
+        print("Checks: executed=0 passed=0 failed=0 skipped=" + str(skipped))
         print(f"error: {error}", file=sys.stderr)
         print("FAILED: no record was written", file=sys.stderr)
         return 1
 
+    executed = len(summary.outcomes)
+    passed = sum(outcome == "matched" for _, outcome, _ in summary.outcomes)
+    failed = sum(outcome == "mismatched" for _, outcome, _ in summary.outcomes)
+    skipped = max(0, summary.fixture_count - executed)
+    print(f"Checks: executed={executed} passed={passed} failed={failed} skipped={skipped}")
     print(f"Endpoint: {summary.endpoint.host} ({summary.endpoint.network})")
     print(f"Captures: {len(summary.captures)}")
     for path in summary.captures:
@@ -803,6 +875,15 @@ def main(argv: list[str]) -> int:
         for path, document in summary.documents:
             print(f"--- {path}")
             print(render_json(document), end="")
+    if args.require_matched and (
+        executed == 0 or passed == 0 or failed > 0 or skipped > 0 or summary.failures
+    ):
+        print(
+            "FAILED: --require-matched needs at least one executed check and "
+            "all fixture checks to match",
+            file=sys.stderr,
+        )
+        return 1
     if summary.failures:
         for _method, message in summary.failures:
             print(f"FAILED: {message}", file=sys.stderr)

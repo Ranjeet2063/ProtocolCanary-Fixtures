@@ -1,10 +1,13 @@
 # Scheduled live verification
 
-The hand-taken captures in
-[`protocol-29/evidence/testnet/`](../protocol-29/evidence/testnet/) go stale.
-This page describes the job that keeps the live evidence fresh: the
-workflow, the script it runs, what a run produces, and what it does when the
-endpoint misbehaves.
+This page documents the existing Protocol 28 workflow. Protocol 29 has a
+separate Testnet/Futurenet schedule and success gate documented in
+[Protocol 29 live verification](protocol-29-live-verification.md); the
+Protocol 28 schedule remains unchanged.
+
+This page describes the existing Protocol 28 capture workflow, which is
+kept unchanged. Protocol 29 has a separate Testnet/Futurenet workflow and a
+strict pass gate; see [Protocol 29 live verification](protocol-29-live-verification.md).
 
 The job is the CF-04-E unit ("scheduled read-only verification job that
 saves captures"). It is issue [#368](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/368).
@@ -45,8 +48,9 @@ repository run at 05:17 and 06:00 UTC, and the top of the hour is when the
 GitHub Actions scheduler is busiest. Weekly is well inside decision D-05's
 30-day freshness window.
 
-**The exact schedule is a maintainer decision** (issue #368 lists it as
-still open). It is one line in the workflow, and nothing else depends on it.
+**The Protocol 28 schedule is the existing workflow setting. Protocol 29's
+separate schedule is documented in
+[Protocol 29 live verification](protocol-29-live-verification.md).
 
 ## The endpoints and the methods
 
@@ -78,9 +82,9 @@ No credentials are used. The request carries a `User-Agent` -- the public
 endpoint's edge refuses Python's default agent -- and nothing else: no
 token, no cookie, no authorization header.
 
-**The exact endpoints are a maintainer decision** (issue #368 lists them as
-still open). They are one mapping in the script, and the workflow calls the
-first entry.
+The Protocol 28 job uses the Testnet host from the script's approved
+endpoint list. Protocol 29's separate endpoint and passphrase allowlist is
+documented in [Protocol 29 live verification](protocol-29-live-verification.md).
 
 ## What a run writes
 
@@ -197,17 +201,13 @@ misbehave on purpose (`--fail-method`, `--hang-method`,
 `--malformed-method`, `--rpc-error-method`, `--no-result-method`,
 `--wrong-id-method`), which is how the tests cover the failure paths.
 
-## The decisions a maintainer still has to make
+## Relationship to Protocol 29
 
-Issue #368 lists four of them. This page and the two files above implement
-the mechanism; each decision is in one place:
-
-| Decision | Where it is now | What changing it means |
-|---|---|---|
-| the schedule | the `cron:` line in the workflow | one line |
-| the endpoints | `APPROVED_ENDPOINTS` in the script | one mapping, plus the workflow's `--endpoint` |
-| how the results are stored | the upload step in the workflow | an artifact needs no write permission; a pull request or a bot commit needs `pull-requests: write` or `contents: write`, and is a security decision |
-| where the records live | the `--output-dir` default in the script | one constant |
+The Protocol 28 job remains scheduled in `.github/workflows/live-evidence.yml`.
+It does not write captures into the repository and does not define Protocol 29
+compatibility. Protocol 29 has its own workflow, endpoint matrix, network
+identity check and zero-execution failure condition, documented in
+[Protocol 29 live verification](protocol-29-live-verification.md).
 
 ## What the job never does
 
