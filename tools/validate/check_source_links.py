@@ -8,9 +8,10 @@ Scans fixture TOML files for:
 Checks each URL with bounded redirects, timeout, 429 rate-limit handling
 (treated as inconclusive), non-HTTP scheme protection, credential stripping,
 and a strict address policy: only publicly routable destinations may be
-contacted, on every redirect hop and on the 405 POST fallback, and the socket
-dials the exact address that was validated rather than resolving the name a
-second time.
+contacted, on every documentation redirect hop, and the socket dials the exact
+address that was validated rather than resolving the name a second time.
+RPC services use a read-only JSON-RPC identity request; Friendbot is never
+HTTP-probed because its GET and POST operations can fund accounts.
 Outputs a formatted markdown table suitable for the GitHub Actions job summary.
 
 Usage:
@@ -23,6 +24,7 @@ import argparse
 import errno
 import http.client
 import ipaddress
+import json
 import os
 import re
 import socket
@@ -46,6 +48,19 @@ DEFAULT_TIMEOUT = 10.0
 
 # Default maximum number of redirects to follow.
 DEFAULT_MAX_REDIRECTS = 5
+
+# Service URLs are not documentation pages: use their documented safe
+# protocol where one exists, and never send Friendbot a request that could
+# fund an account. These exact test-network hosts and passphrases are the
+# official Stellar SDK defaults and network identities.
+RPC_SERVICE_PASSPHRASES = {
+    "soroban-testnet.stellar.org": "Test SDF Network ; September 2015",
+    "rpc-futurenet.stellar.org": "Test SDF Future Network ; October 2022",
+}
+FRIENDBOT_SERVICE_HOSTS = frozenset(
+    {"friendbot.stellar.org", "friendbot-futurenet.stellar.org"}
+)
+MAX_RPC_LINK_RESPONSE_BYTES = 1024 * 1024
 
 # Realistic User-Agent to prevent unwarranted blocks by CDNs/hosts.
 USER_AGENT = "Mozilla/5.0 (compatible; ProtocolCanary-LinkCheck/1.0; +https://github.com/StellarCanary/ProtocolCanary-Fixtures)"
@@ -389,6 +404,122 @@ def extract_links_from_file(path: Path) -> list[str]:
     return sorted(found_urls)
 
 
+def _service_url_problem(parts, service: str) -> str | None:
+    """Require an exact HTTPS service origin with no side-effecting parameters."""
+    scheme = (parts.scheme or "").lower()
+    if scheme != "https":
+        return f"{service} service URL must use HTTPS"
+    try:
+        port = parts.port
+    except ValueError:
+        return f"invalid {service} service URL port"
+    if port not in (None, 443):
+        return f"{service} service URL must use the default HTTPS port"
+    if parts.path not in ("", "/"):
+        return f"{service} service URL must name its root endpoint"
+    if parts.query or parts.fragment:
+        return f"{service} service URL must not carry query or fragment data"
+    return None
+
+
+def _check_rpc_service(
+    url: str,
+    expected_passphrase: str,
+    timeout: float,
+    opener: urllib.request.OpenerDirector,
+    policy: AddressPolicy,
+) -> CheckResult:
+    """Check a public RPC endpoint with its safe, read-only getNetwork method."""
+    parts = urlsplit(url)
+    problem = _service_url_problem(parts, "RPC")
+    if problem:
+        return CheckResult("Failed", problem)
+    host = parts.hostname or ""
+    try:
+        policy.authorize(host, 443)
+    except NonPublicAddressError:
+        return CheckResult("Failed", "refused: non-public address")
+    except OSError as exc:
+        return CheckResult("Failed", f"network error: {exc}")
+
+    body = json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "getNetwork"},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        response = opener.open(request, timeout=timeout)
+    except NonPublicAddressError:
+        return CheckResult("Failed", "refused: non-public address")
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        exc.close()
+        if code == 429:
+            return CheckResult("Inconclusive", "HTTP 429 Too Many Requests")
+        return CheckResult("Failed", f"HTTP {code}")
+    except (TimeoutError, urllib.error.URLError) as exc:
+        reason = getattr(exc, "reason", str(exc))
+        if "timed out" in str(reason).lower() or isinstance(exc, TimeoutError):
+            return CheckResult("Failed", f"timed out after {timeout}s")
+        return CheckResult("Failed", f"network error: {reason}")
+    except Exception as exc:
+        return CheckResult("Failed", f"{type(exc).__name__}: {exc}")
+
+    try:
+        if response.status != 200:
+            return CheckResult("Failed", f"HTTP {response.status}")
+        response_body = response.read(MAX_RPC_LINK_RESPONSE_BYTES + 1)
+    except (TimeoutError, socket.timeout):
+        return CheckResult("Failed", f"timed out after {timeout}s")
+    except Exception as exc:
+        return CheckResult("Failed", f"response read failed: {type(exc).__name__}: {exc}")
+    finally:
+        response.close()
+
+    if len(response_body) > MAX_RPC_LINK_RESPONSE_BYTES:
+        return CheckResult("Failed", "RPC response exceeded the size limit")
+    try:
+        answer = json.loads(response_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return CheckResult("Failed", f"RPC response was not JSON: {exc}")
+    if not isinstance(answer, dict):
+        return CheckResult("Failed", "RPC response was not a JSON-RPC object")
+    if answer.get("jsonrpc") != "2.0" or type(answer.get("id")) is not int or answer["id"] != 1:
+        return CheckResult("Failed", "RPC response did not match the getNetwork request")
+    if "error" in answer:
+        return CheckResult("Failed", "RPC getNetwork returned a JSON-RPC error")
+    result = answer.get("result")
+    if not isinstance(result, dict):
+        return CheckResult("Failed", "RPC getNetwork result was not an object")
+    if result.get("passphrase") != expected_passphrase:
+        return CheckResult("Failed", "RPC getNetwork passphrase did not match the endpoint network")
+    protocol = result.get("protocolVersion")
+    if isinstance(protocol, bool) or not isinstance(protocol, int) or protocol < 0:
+        return CheckResult("Failed", "RPC getNetwork protocolVersion was not a non-negative integer")
+    return CheckResult("OK")
+
+
+def _check_friendbot_service(url: str) -> CheckResult:
+    """Do not call a funding service just to test a documentation URL."""
+    parts = urlsplit(url)
+    problem = _service_url_problem(parts, "Friendbot")
+    if problem:
+        return CheckResult("Failed", problem)
+    return CheckResult(
+        "Inconclusive",
+        "Friendbot funding endpoint not probed; GET/POST can fund an account",
+    )
+
+
 def check_link(
     url: str,
     timeout: float = DEFAULT_TIMEOUT,
@@ -398,8 +529,10 @@ def check_link(
 ) -> CheckResult:
     """Check a URL with bounded redirects, timeout, 429 handling, and non-HTTP scheme guards.
 
-    ``policy`` is the address policy applied to the destination before every
-    request -- the first URL, every redirect hop and the 405 POST fallback.
+    ``policy`` is the address policy applied before every documentation
+    request and every redirect hop. RPC service endpoints use one safe,
+    read-only ``getNetwork`` JSON-RPC request. Friendbot service URLs are
+    never requested because their documented GET/POST calls fund accounts.
     It defaults to ``DEFAULT_ADDRESS_POLICY``, which only allows publicly
     routable destinations. There is no command-line flag or environment
     variable that can weaken it; tests inject a permissive policy instead.
@@ -427,6 +560,18 @@ def check_link(
         policy = DEFAULT_ADDRESS_POLICY
     if opener is None:
         opener = _build_opener(policy)
+
+    host = parts.hostname.lower()
+    if host in RPC_SERVICE_PASSPHRASES:
+        return _check_rpc_service(
+            sanitized_url,
+            RPC_SERVICE_PASSPHRASES[host],
+            timeout,
+            opener,
+            policy,
+        )
+    if host in FRIENDBOT_SERVICE_HOSTS:
+        return _check_friendbot_service(sanitized_url)
 
     def apply_policy(request_url: str) -> CheckResult | None:
         """Apply ``policy`` to ``request_url``'s destination.
@@ -491,34 +636,7 @@ def check_link(
             exc.close()
             if code == 429:
                 return CheckResult("Inconclusive", "HTTP 429 Too Many Requests")
-            if code == 405:
-                # Some RPC endpoints (e.g., soroban-testnet) reject GET with 405 Method Not Allowed.
-                # Try POST with empty payload as a fallback check. The address
-                # policy is applied again: the POST is a new request to the
-                # same destination and must pass the same check.
-                refused = apply_policy(current_url)
-                if refused is not None:
-                    return refused
-                try:
-                    post_req = urllib.request.Request(
-                        current_url,
-                        data=b"",
-                        headers={
-                            "User-Agent": USER_AGENT,
-                            "Accept": "*/*",
-                        },
-                    )
-                    resp = opener.open(post_req, timeout=timeout)
-                except urllib.error.HTTPError as post_exc:
-                    post_code = post_exc.code
-                    post_exc.close()
-                    if post_code == 429:
-                        return CheckResult("Inconclusive", "HTTP 429 Too Many Requests")
-                    return CheckResult("Failed", f"HTTP {post_code}")
-                except Exception as post_err:
-                    return CheckResult("Failed", f"POST fallback failed: {post_err}")
-            else:
-                return CheckResult("Failed", f"HTTP {code}")
+            return CheckResult("Failed", f"HTTP {code}")
         except (TimeoutError, urllib.error.URLError) as exc:
             reason = getattr(exc, "reason", str(exc))
             if "timed out" in str(reason).lower() or isinstance(exc, TimeoutError):
