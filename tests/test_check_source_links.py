@@ -13,6 +13,7 @@ environment variable that could weaken the policy used in CI.
 from __future__ import annotations
 
 import io
+import json
 import socket
 import tempfile
 import threading
@@ -119,10 +120,6 @@ class MockServerHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"No credentials sent")
-        elif path == "/rpc-endpoint":
-            # Rejects GET with 405 Method Not Allowed
-            self.send_response(405)
-            self.end_headers()
         elif path.startswith("/redirect-status/"):
             code = int(path.split("/")[-1])
             self.send_response(code)
@@ -157,16 +154,6 @@ class MockServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"OK")
         else:
             self.send_response(404)
-            self.end_headers()
-
-    def do_POST(self) -> None:
-        if self.path == "/rpc-endpoint":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"result": "ok"}')
-        else:
-            self.send_response(405)
             self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -331,41 +318,6 @@ source_reference = "ftp://example.com/spec.txt"
         self.assertEqual(res.status, "Failed")
         self.assertIn("500", res.formatted())
 
-    def test_check_link_post_fallback_failures(self) -> None:
-        url = f"{self.base_url}/rpc-endpoint"
-        # An explicit empty body, not None: HTTPError is an addinfourl, and
-        # on Python 3.14 that base class wraps the body in a
-        # tempfile._TemporaryFileWrapper, whose __del__ warns
-        # (ResourceWarning) when it is collected unclosed. check_link closes
-        # what it catches and only reads `code`, so an empty body changes
-        # nothing it observes.
-        cases = (
-            (
-                urllib.error.HTTPError(url, 429, "Too Many Requests", {}, io.BytesIO(b"")),
-                "Inconclusive",
-                "429",
-            ),
-            (
-                urllib.error.HTTPError(url, 503, "Unavailable", {}, io.BytesIO(b"")),
-                "Failed",
-                "503",
-            ),
-            (RuntimeError("connection reset"), "Failed", "POST fallback failed"),
-        )
-        for post_error, expected_status, expected_detail in cases:
-            with self.subTest(error=type(post_error).__name__):
-                opener = Mock()
-                opener.open.side_effect = [
-                    urllib.error.HTTPError(
-                        url, 405, "Method Not Allowed", {}, io.BytesIO(b"")
-                    ),
-                    post_error,
-                ]
-                result = check_link(url, opener=opener, policy=LOOPBACK_POLICY)
-                self.assertEqual(result.status, expected_status)
-                self.assertIn(expected_detail, result.formatted())
-                self.assertEqual(opener.open.call_count, 2)
-
     def test_check_link_network_and_unexpected_errors(self) -> None:
         cases = (
             (urllib.error.URLError("connection refused"), "network error"),
@@ -503,9 +455,156 @@ source_reference = "ftp://example.com/spec.txt"
         self.assertEqual(res.status, "Failed")
         self.assertIn("timed out", res.formatted().lower())
 
-    def test_check_link_rpc_post_fallback(self) -> None:
-        res = check_link(f"{self.base_url}/rpc-endpoint", policy=LOOPBACK_POLICY)
-        self.assertEqual(res.status, "OK")
+    def test_rpc_service_uses_read_only_get_network_json_rpc(self) -> None:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "passphrase": "Test SDF Network ; September 2015",
+                "protocolVersion": 29,
+            },
+        }
+        response = Mock(status=200)
+        response.read.return_value = json.dumps(payload).encode("utf-8")
+        opener = Mock()
+        opener.open.return_value = response
+
+        result = check_link(
+            "https://soroban-testnet.stellar.org/",
+            opener=opener,
+            policy=FAKE_PUBLIC_POLICY,
+        )
+
+        self.assertEqual(result.status, "OK")
+        opener.open.assert_called_once()
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data), {
+            "jsonrpc": "2.0", "id": 1, "method": "getNetwork"
+        })
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+        response.close.assert_called_once_with()
+
+    def test_futurenet_rpc_service_checks_the_futurenet_identity(self) -> None:
+        response = Mock(status=200)
+        response.read.return_value = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "passphrase": "Test SDF Future Network ; October 2022",
+                "protocolVersion": 29,
+            },
+        }).encode("utf-8")
+        opener = Mock()
+        opener.open.return_value = response
+
+        result = check_link(
+            "https://rpc-futurenet.stellar.org",
+            opener=opener,
+            policy=FAKE_PUBLIC_POLICY,
+        )
+
+        self.assertEqual(result.status, "OK")
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data)["method"], "getNetwork")
+
+    def test_rpc_service_rejects_wrong_passphrase_and_bad_protocol(self) -> None:
+        cases = (
+            ({"passphrase": "wrong", "protocolVersion": 29}, "passphrase"),
+            ({"passphrase": "Test SDF Network ; September 2015", "protocolVersion": True}, "protocolVersion"),
+            ({"passphrase": "Test SDF Network ; September 2015", "protocolVersion": "29"}, "protocolVersion"),
+        )
+        for result_data, expected_detail in cases:
+            with self.subTest(result=result_data):
+                response = Mock(status=200)
+                response.read.return_value = json.dumps({
+                    "jsonrpc": "2.0", "id": 1, "result": result_data
+                }).encode("utf-8")
+                opener = Mock()
+                opener.open.return_value = response
+                result = check_link(
+                    "https://soroban-testnet.stellar.org",
+                    opener=opener,
+                    policy=FAKE_PUBLIC_POLICY,
+                )
+                self.assertEqual(result.status, "Failed")
+                self.assertIn(expected_detail, result.formatted())
+
+    def test_rpc_service_rejects_http_400_415_and_other_client_errors(self) -> None:
+        for status in (400, 401, 403, 404, 405, 415, 503):
+            with self.subTest(status=status):
+                url = "https://soroban-testnet.stellar.org"
+                opener = Mock()
+                opener.open.side_effect = urllib.error.HTTPError(
+                    url, status, "response", {}, io.BytesIO(b"")
+                )
+                result = check_link(url, opener=opener, policy=FAKE_PUBLIC_POLICY)
+                self.assertEqual(result.status, "Failed")
+                self.assertIn(f"HTTP {status}", result.formatted())
+                opener.open.assert_called_once()
+
+    def test_rpc_service_rejects_malformed_response_without_fallback(self) -> None:
+        response = Mock(status=200)
+        response.read.return_value = b'{"jsonrpc":"2.0","id":1,"error":{"code":-1}}'
+        opener = Mock()
+        opener.open.return_value = response
+        result = check_link(
+            "https://soroban-testnet.stellar.org",
+            opener=opener,
+            policy=FAKE_PUBLIC_POLICY,
+        )
+        self.assertEqual(result.status, "Failed")
+        self.assertIn("JSON-RPC error", result.formatted())
+        opener.open.assert_called_once()
+
+    def test_friendbot_is_not_probed_and_is_reported_inconclusive(self) -> None:
+        opener = Mock()
+        result = check_link(
+            "https://friendbot.stellar.org/",
+            opener=opener,
+            policy=FAKE_PUBLIC_POLICY,
+        )
+        self.assertEqual(result.status, "Inconclusive")
+        self.assertIn("not probed", result.formatted())
+        opener.open.assert_not_called()
+
+    def test_friendbot_side_effecting_query_or_path_is_refused(self) -> None:
+        for url in (
+            "https://friendbot.stellar.org/?addr=GABC",
+            "https://friendbot.stellar.org/fund",
+            "http://friendbot.stellar.org/",
+        ):
+            with self.subTest(url=url):
+                opener = Mock()
+                result = check_link(url, opener=opener, policy=FAKE_PUBLIC_POLICY)
+                self.assertEqual(result.status, "Failed")
+                opener.open.assert_not_called()
+
+    def test_documentation_urls_use_get_and_a_405_is_a_failure(self) -> None:
+        url = "https://developers.stellar.org/docs/rpc"
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(
+            url, 405, "Method Not Allowed", {}, io.BytesIO(b"")
+        )
+        result = check_link(url, opener=opener, policy=FAKE_PUBLIC_POLICY)
+        self.assertEqual(result.status, "Failed")
+        self.assertEqual(result.formatted(), "Failed (HTTP 405)")
+        opener.open.assert_called_once()
+        self.assertEqual(opener.open.call_args.args[0].get_method(), "GET")
+
+    def test_documentation_400_and_415_remain_failures(self) -> None:
+        for status in (400, 415):
+            with self.subTest(status=status):
+                url = f"https://developers.stellar.org/docs/status/{status}"
+                opener = Mock()
+                opener.open.side_effect = urllib.error.HTTPError(
+                    url, status, "response", {}, io.BytesIO(b"")
+                )
+                result = check_link(url, opener=opener, policy=FAKE_PUBLIC_POLICY)
+                self.assertEqual(result.status, "Failed")
+                self.assertIn(f"HTTP {status}", result.formatted())
+                opener.open.assert_called_once()
 
     def test_generate_markdown_table(self) -> None:
         rows = [
@@ -747,25 +846,18 @@ class NonPublicDestinationTests(unittest.TestCase):
         self.assertEqual(calls, [("example.org", 443)])
         redirect.close.assert_called_once_with()
 
-    def test_post_fallback_applies_the_same_policy(self) -> None:
-        calls: list[str] = []
-
-        def resolve(host: str, port: int, **kwargs):
-            calls.append(host)
-            address = "93.184.216.34" if len(calls) == 1 else "10.0.0.5"
-            return self.answer(address, port)
-
-        url = "https://rpc.example.org/methods"
+    def test_documentation_405_does_not_trigger_a_second_post_request(self) -> None:
+        url = "https://docs.example.org/page"
         opener = Mock()
         opener.open.side_effect = urllib.error.HTTPError(
             url, 405, "Method Not Allowed", {}, None
         )
 
-        result = check_link(url, opener=opener, policy=AddressPolicy(resolver=resolve))
+        result = check_link(url, opener=opener, policy=FAKE_PUBLIC_POLICY)
 
-        self.assertEqual(result.formatted(), "Failed (refused: non-public address)")
-        # Only the GET ran; the POST fallback never sent a request.
+        self.assertEqual(result.formatted(), "Failed (HTTP 405)")
         self.assertEqual(opener.open.call_count, 1)
+        self.assertEqual(opener.open.call_args.args[0].get_method(), "GET")
 
     def test_connects_only_to_the_first_validated_address(self) -> None:
         calls: list[str] = []

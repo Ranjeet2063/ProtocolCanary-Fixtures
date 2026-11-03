@@ -33,6 +33,13 @@ discussion and diff. New entries must include that link; see
 
 ### Changed
 
+- Fixtures CI now installs the complete hash-locked dependency set for the
+  schema-differential suite, including the transitive `typing-extensions`
+  requirement. Source-link checks now use read-only `getNetwork` probes for
+  the approved Testnet and Futurenet RPC services, retain strict GET validation
+  for documentation URLs, and mark Friendbot roots inconclusive without
+  sending a request. See
+  [PR #483](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/483).
 - Protocol 29 now has a sourced RPC identity fixture asserting that
   `getVersionInfo` reports protocol 29. The old mismatch-named structural
   records remain unchanged under `protocol-29/evidence/history/verification/`;
