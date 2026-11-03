@@ -33,31 +33,6 @@ discussion and diff. New entries must include that link; see
 
 ### Changed
 
-- Release selection now maps protocol-scoped tags
-  `fixtures-p28-vX.Y.Z` and `fixtures-p29-vX.Y.Z` to one exact pack; manual
-  dispatch also requires an explicit protocol and version. Protocol 29 verified
-  builds require fresh matched read-only evidence for every fixture on both
-  Testnet and Futurenet, linked to raw captures. Empty packs cannot pass the
-  verified gate, legacy structural history is ignored, and release uploads do
-  not replace existing assets. See
-  [PR #484](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/484).
-- Fixtures CI now installs the complete hash-locked dependency set for the
-  schema-differential suite, including the transitive `typing-extensions`
-  requirement. Source-link checks now use read-only `getNetwork` probes for
-  the approved Testnet and Futurenet RPC services, retain strict GET validation
-  for documentation URLs, and mark Friendbot roots inconclusive without
-  sending a request. See
-  [PR #483](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/483).
-- Protocol 29 now has a sourced RPC identity fixture asserting that
-  `getVersionInfo` reports protocol 29. The old mismatch-named structural
-  records remain unchanged under `protocol-29/evidence/history/verification/`;
-  fresh read-only captures and records separately verify the fixture on
-  Testnet and Futurenet. Registry CI now rejects an empty Protocol 29 pack;
-  the fixture-to-RPC mapping, endpoint passphrase checks and distinct
-  two-network scheduled evidence workflow are covered by tests. The Engine at
-  Protocol-Canary `aa652ef600ab25b36019077684474beb34159f61` separately
-  executed the fixture live on both networks (1 passed on each).
-  See [PR #482](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/482).
 - RPC contract coverage now completes F-020 (#282): `[request]` is described
   in the JSON Schema, `field-one-of` and the engine-supported `integer`
   `field-type` are validated and evaluated by the live-capture verifier; the
@@ -1180,6 +1155,38 @@ discussion and diff. New entries must include that link; see
   `StellarValue` was supported), so that the CAP-0085 fixtures above are
   actually runnable rather than merely well-formed TOML. See that
   repository's own changelog for the corresponding entry. ([757e1e7])
+
+## [0.1.0] - 2026-11-03
+
+Protocol 29 0.1.0 covers one verified RPC network-identity fixture on Testnet and Futurenet. It does not establish broader protocol compatibility. Publication is a separate maintainer decision.
+
+### Changed
+
+- Release selection now maps protocol-scoped tags
+  `fixtures-p28-vX.Y.Z` and `fixtures-p29-vX.Y.Z` to one exact pack; manual
+  dispatch also requires an explicit protocol and version. Protocol 29 verified
+  builds require fresh matched read-only evidence for every fixture on both
+  Testnet and Futurenet, linked to raw captures. Empty packs cannot pass the
+  verified gate, legacy structural history is ignored, and release uploads do
+  not replace existing assets. See
+  [PR #484](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/484).
+- Fixtures CI now installs the complete hash-locked dependency set for the
+  schema-differential suite, including the transitive `typing-extensions`
+  requirement. Source-link checks now use read-only `getNetwork` probes for
+  the approved Testnet and Futurenet RPC services, retain strict GET validation
+  for documentation URLs, and mark Friendbot roots inconclusive without
+  sending a request. See
+  [PR #483](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/483).
+- Protocol 29 now has a sourced RPC identity fixture asserting that
+  `getVersionInfo` reports protocol 29. The old mismatch-named structural
+  records remain unchanged under `protocol-29/evidence/history/verification/`;
+  fresh read-only captures and records separately verify the fixture on
+  Testnet and Futurenet. Registry CI now rejects an empty Protocol 29 pack;
+  the fixture-to-RPC mapping, endpoint passphrase checks and distinct
+  two-network scheduled evidence workflow are covered by tests. The Engine at
+  Protocol-Canary `aa652ef600ab25b36019077684474beb34159f61` separately
+  executed the fixture live on both networks (1 passed on each).
+  See [PR #482](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/482).
 
 <!-- Link definitions: the pull request or commit that introduced each
      entry above. Commits listed here were pushed directly to `main`
