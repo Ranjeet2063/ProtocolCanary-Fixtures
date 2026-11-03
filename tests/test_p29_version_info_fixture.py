@@ -1,4 +1,4 @@
-"""Protocol 29 endpoint versus Protocol 28 target mismatch fixture."""
+"""Protocol 29 getVersionInfo identity fixture semantics."""
 from __future__ import annotations
 
 import json
@@ -9,11 +9,11 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = REPO_ROOT / "protocol-29" / "rpc" / "p29-rpc-network-mismatch.toml"
+FIXTURE = REPO_ROOT / "protocol-29" / "rpc" / "p29-rpc-version-info-protocol-29.toml"
 
 
-class ProtocolMismatchFixtureTests(unittest.TestCase):
-    def test_fixture_validates_and_describes_the_mismatch(self) -> None:
+class Protocol29VersionInfoFixtureTests(unittest.TestCase):
+    def test_fixture_validates_as_a_protocol_29_identity_assertion(self) -> None:
         run = subprocess.run(
             [sys.executable, str(REPO_ROOT / "tools" / "validate" / "validate.py"), "protocol-29", "--format", "json"],
             cwd=REPO_ROOT,
@@ -25,17 +25,27 @@ class ProtocolMismatchFixtureTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr or run.stdout)
         report = json.loads(run.stdout)
         self.assertTrue(report["valid"], report["errors"])
-        text = FIXTURE.read_text(encoding="utf-8")
-        self.assertIn("Protocol 28 target", text)
-        self.assertIn('protocol = 29', text)
-        self.assertIn('field = "protocolVersion"', text)
+
+        import tomllib
+
+        fixture = tomllib.loads(FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["id"], "p29-rpc-version-info-protocol-29")
+        self.assertEqual(fixture["protocol"], 29)
+        self.assertEqual(fixture["surface"], "rpc")
+        self.assertEqual(fixture["category"], "network")
+        self.assertIn("reports protocol 29", fixture["description"])
+        self.assertEqual(fixture["method"], "get-version-info")
+        self.assertEqual(
+            fixture["assert"],
+            [{"kind": "field-equals", "field": "protocolVersion", "value": 29}],
+        )
 
     def test_invalid_schema_field_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             invalid = root / "invalid.toml"
             invalid.write_text(
-                FIXTURE.read_text(encoding="utf-8") + '\nunexpected_field = true\n',
+                FIXTURE.read_text(encoding="utf-8") + "\nunexpected_field = true\n",
                 encoding="utf-8",
             )
             run = subprocess.run(
