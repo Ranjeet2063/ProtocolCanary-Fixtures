@@ -1,11 +1,15 @@
 """Release events must select one explicit protocol pack and version."""
 from __future__ import annotations
 
+import io
+import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import chdir, redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pack_support as support  # noqa: E402
@@ -53,6 +57,10 @@ class PackSelectionTests(unittest.TestCase):
             selector.select(event="push", tag="fixtures-p28-v1.2.3", protocol="28")
         with self.assertRaises(selector.SelectionError):
             selector.select(event="workflow_dispatch", protocol="30", version="1.2.3")
+        with self.assertRaises(selector.SelectionError):
+            selector.select(event="workflow_dispatch", tag="fixtures-p29-v1.2.3", protocol="29", version="1.2.3")
+        with self.assertRaises(selector.SelectionError):
+            selector.select(event="unsupported")
 
 
 class ReleaseRefValidationTests(unittest.TestCase):
@@ -115,6 +123,67 @@ class ReleaseRefValidationTests(unittest.TestCase):
         self.assertIn("pack=protocol-29", valid_context.stdout)
         self.assertIn(f"commit={self.main_sha}", valid_context.stdout)
 
+    def test_in_process_cli_covers_tag_and_manual_dispatch_paths(self) -> None:
+        tag = "fixtures-p29-v1.2.3"
+        ref = f"refs/tags/{tag}"
+        self.git("tag", tag)
+
+        def call_main(args: list[str]) -> tuple[int, str, str]:
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = selector.main(args)
+            return result, stdout.getvalue(), stderr.getvalue()
+
+        with chdir(self.repo):
+            missing_ref = call_main(["--event", "push", "--tag", tag])
+            self.assertEqual(missing_ref[0], 2)
+            self.assertIn("require release-ref validation", missing_ref[2])
+
+            extra_protocol = call_main(
+                ["--event", "push", "--tag", tag, "--ref", ref, "--sha", self.main_sha,
+                 "--protocol", "29"]
+            )
+            self.assertEqual(extra_protocol[0], 2)
+            self.assertIn("select both protocol and version", extra_protocol[2])
+
+            valid_tag = call_main(
+                ["--event", "push", "--tag", tag, "--ref", ref, "--sha", self.main_sha]
+            )
+            self.assertEqual(valid_tag[0], 0, valid_tag[2])
+            self.assertIn("pack=protocol-29", valid_tag[1])
+
+            manual_with_ref = call_main(
+                ["--event", "workflow_dispatch", "--protocol", "29", "--version", "1.2.3",
+                 "--ref", ref]
+            )
+            self.assertEqual(manual_with_ref[0], 2)
+            self.assertIn("does not accept a release ref", manual_with_ref[2])
+
+            manual = call_main(
+                ["--event", "workflow_dispatch", "--protocol", "29", "--version", "1.2.3"]
+            )
+            self.assertEqual(manual[0], 0, manual[2])
+            self.assertIn("verified=true", manual[1])
+
+    def test_script_entrypoint_calls_main(self) -> None:
+        tag = "fixtures-p28-v1.2.3"
+        self.git("tag", tag)
+        argv = [
+            str(SELECTOR_SCRIPT),
+            "--event", "push",
+            "--tag", tag,
+            "--ref", f"refs/tags/{tag}",
+            "--sha", self.main_sha,
+            "--main-ref", "refs/remotes/origin/main",
+        ]
+        stdout = io.StringIO()
+        with chdir(self.repo), mock.patch.object(sys, "argv", argv), redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as raised:
+                runpy.run_path(str(SELECTOR_SCRIPT), run_name="__main__")
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("pack=protocol-28", stdout.getvalue())
+
     def test_push_and_published_release_accept_only_exact_main_tag_commit(self) -> None:
         tag = "fixtures-p29-v1.2.3"
         ref = f"refs/tags/{tag}"
@@ -154,6 +223,41 @@ class ReleaseRefValidationTests(unittest.TestCase):
                 sha="0" * 40,
                 repo=self.repo,
             )
+
+        with self.assertRaisesRegex(selector.SelectionError, "full hexadecimal commit ID"):
+            selector.validate_release_ref(
+                event="push",
+                tag=tag,
+                ref=f"refs/tags/{tag}",
+                sha="not-a-commit",
+                repo=self.repo,
+            )
+
+    def test_git_lookup_and_ancestry_errors_fail_closed(self) -> None:
+        tag = "fixtures-p28-v1.2.3"
+        ref = f"refs/tags/{tag}"
+        self.git("tag", tag)
+        args = {
+            "event": "push",
+            "tag": tag,
+            "ref": ref,
+            "sha": self.main_sha,
+            "repo": self.repo,
+        }
+
+        with mock.patch.object(selector.subprocess, "run", side_effect=OSError("git missing")):
+            with self.assertRaisesRegex(selector.SelectionError, "cannot resolve release tag"):
+                selector.validate_release_ref(**args)
+
+        failed_git = subprocess.CalledProcessError(128, ["git", "rev-parse"])
+        with mock.patch.object(selector.subprocess, "run", side_effect=failed_git):
+            with self.assertRaisesRegex(selector.SelectionError, "cannot resolve release tag"):
+                selector.validate_release_ref(**args)
+
+        resolved = subprocess.CompletedProcess([], 0, stdout=f"{self.main_sha}\n")
+        with mock.patch.object(selector.subprocess, "run", side_effect=[resolved, OSError("git missing")]):
+            with self.assertRaisesRegex(selector.SelectionError, "verify release commit ancestry"):
+                selector.validate_release_ref(**args)
 
     def test_release_tag_on_commit_outside_main_history_is_rejected(self) -> None:
         tag = "fixtures-p28-v1.2.4"
