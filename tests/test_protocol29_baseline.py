@@ -2,7 +2,7 @@
 
 The ``protocol-29/`` pack ships with a generated registry and fixture files
 under ``rpc/``, ``xdr/`` and ``soroban/``. Its registry must describe the
-current pack exactly, and the fixture count is real compatibility coverage.
+current pack exactly. Inventory presence alone is not live compatibility evidence.
 
 Run with: python3 -m unittest discover tests
 """
@@ -71,13 +71,13 @@ class Protocol29BaselineTests(unittest.TestCase):
             with self.subTest(directory=name):
                 self.assertTrue((PACK_DIR / name).is_dir())
 
-    def test_registry_describes_the_protocol_29_mismatch_fixture(self) -> None:
+    def test_registry_describes_the_protocol_29_version_info_fixture(self) -> None:
         integer_protocol = self.registry["protocol"]
         self.assertIs(type(integer_protocol), int, "protocol must be an integer, not a bool")
         self.assertEqual(integer_protocol, 29)
         self.assertEqual(self.registry["registryVersion"], 1)
         fixture_ids = [fixture["id"] for fixture in self.registry["fixtures"]]
-        self.assertIn("p29-rpc-network-mismatch", fixture_ids)
+        self.assertIn("p29-rpc-version-info-protocol-29", fixture_ids)
 
     def test_registry_conforms_to_the_registry_schema(self) -> None:
         problems = lite.validate(self.registry, SCHEMA)
@@ -101,10 +101,10 @@ class Protocol29BaselineTests(unittest.TestCase):
         expected = "sha256:" + hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
         self.assertEqual(self.registry["packDigest"], expected)
 
-    def test_protocol_29_fixture_is_reported_as_coverage(self) -> None:
+    def test_protocol_29_fixture_is_listed_in_the_registry(self) -> None:
         fixture_paths = {fixture["path"] for fixture in self.registry["fixtures"]}
-        self.assertIn("rpc/p29-rpc-network-mismatch.toml", fixture_paths)
-        self.assertTrue((PACK_DIR / "rpc" / "p29-rpc-network-mismatch.toml").is_file())
+        self.assertIn("rpc/p29-rpc-version-info-protocol-29.toml", fixture_paths)
+        self.assertTrue((PACK_DIR / "rpc" / "p29-rpc-version-info-protocol-29.toml").is_file())
 
     def test_baseline_manifest_passes_the_pack_checks(self) -> None:
         self.assertEqual(check_baseline(self.registry), [])

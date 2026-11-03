@@ -1,0 +1,13 @@
+id = "p29-rpc-version-info-protocol-29"
+protocol = 29
+surface = "rpc"
+category = "network"
+description = "get-version-info reports protocol 29 for a Protocol 29 endpoint."
+source_reference = "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getVersionInfo"
+
+method = "get-version-info"
+
+[[assert]]
+kind = "field-equals"
+field = "protocolVersion"
+value = 29
