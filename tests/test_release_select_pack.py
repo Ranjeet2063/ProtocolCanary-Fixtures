@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pack_support as support  # noqa: E402
 
 selector = support.load_tool("canary_select_pack", "tools/release/select_pack.py")
+SELECTOR_SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "release" / "select_pack.py"
 
 
 class PackSelectionTests(unittest.TestCase):
@@ -80,6 +81,39 @@ class ReleaseRefValidationTests(unittest.TestCase):
             text=True,
         )
         return result.stdout.strip()
+
+    def run_selector(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SELECTOR_SCRIPT), *args],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_tag_cli_requires_and_validates_ref_context(self) -> None:
+        tag = "fixtures-p29-v1.2.3"
+        ref = f"refs/tags/{tag}"
+        self.git("tag", tag)
+
+        missing_context = self.run_selector("--event", "push", "--tag", tag)
+        self.assertEqual(missing_context.returncode, 2)
+        self.assertIn("require release-ref validation", missing_context.stderr)
+
+        valid_context = self.run_selector(
+            "--event",
+            "push",
+            "--tag",
+            tag,
+            "--ref",
+            ref,
+            "--sha",
+            self.main_sha,
+            "--main-ref",
+            "refs/remotes/origin/main",
+        )
+        self.assertEqual(valid_context.returncode, 0, valid_context.stderr)
+        self.assertIn("pack=protocol-29", valid_context.stdout)
+        self.assertIn(f"commit={self.main_sha}", valid_context.stdout)
 
     def test_push_and_published_release_accept_only_exact_main_tag_commit(self) -> None:
         tag = "fixtures-p29-v1.2.3"
