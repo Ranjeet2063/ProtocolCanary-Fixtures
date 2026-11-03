@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "release-pack.yml"
+RELEASING_DOC = ROOT / "docs" / "releasing.md"
 
 
 def job_block(workflow: str, name: str) -> str:
@@ -27,6 +28,7 @@ class ReleaseWorkflowSecurityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        cls.docs = RELEASING_DOC.read_text(encoding="utf-8")
 
     def test_workflow_defaults_to_no_permissions_and_scopes_write_access(self) -> None:
         self.assertRegex(self.workflow, r"(?m)^permissions: \{\}$")
@@ -75,6 +77,21 @@ class ReleaseWorkflowSecurityTests(unittest.TestCase):
         self.assertNotIn("gh release upload", attest)
         self.assertIn("gh release upload", publish)
         self.assertNotIn("--clobber", publish)
+
+    def test_release_docs_require_tag_rules_and_use_current_scoped_examples(self) -> None:
+        docs = self.docs.lower()
+        self.assertIn("tag ruleset", docs)
+        self.assertIn("restrict tag creation", docs)
+        self.assertIn("block tag updates and deletion", docs)
+        self.assertIn("workflow check alone does not protect against untrusted tag content", docs)
+        self.assertIn("tag-push automation", docs)
+        self.assertIn("release.published", docs)
+        self.assertIn("fixtures-p28-v0.1.0", docs)
+        self.assertIn("fixtures-p29-v0.1.0", docs)
+        self.assertIn("94 fixture file(s) valid across 3 root(s)", docs)
+        self.assertIn("93 fixture(s), 93 file(s) valid", docs)
+        self.assertNotIn("OK: 31 fixture file(s)", docs)
+        self.assertNotIn("(e.g. `v0.1.1`)", docs)
 
 if __name__ == "__main__":
     unittest.main()
