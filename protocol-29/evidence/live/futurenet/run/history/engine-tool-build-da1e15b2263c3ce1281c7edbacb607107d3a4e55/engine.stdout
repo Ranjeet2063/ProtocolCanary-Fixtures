@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "toolVersion": "0.2.0",
+  "targetProtocol": 29,
+  "project": {
+    "name": "ProtocolCanary-Fixtures",
+    "type": "unknown"
+  },
+  "network": {
+    "name": "futurenet",
+    "observedProtocol": 29
+  },
+  "status": "pass",
+  "counts": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "warnings": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "testId": "p29-rpc-version-info-protocol-29",
+      "protocol": 29,
+      "surface": "rpc",
+      "status": "pass",
+      "summary": "GetVersionInfo response matched all 1 assertion(s)",
+      "durationMs": 484,
+      "fixtureId": "p29-rpc-version-info-protocol-29",
+      "source": "live"
+    }
+  ],
+  "git": {
+    "commit": "0be85114313c9e92d3919c8c282fa133e86d82b0",
+    "branch": "fix/p29-version-info-fixture-semantics",
+    "isDirty": true
+  },
+  "verbose": false,
+  "run": {
+    "toolBuildCommit": "da1e15b226a689560841439b86e682d272fe3c08"
+  }
+}

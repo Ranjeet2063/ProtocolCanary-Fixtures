@@ -1,0 +1,18 @@
+{
+  "capturedAt": "2026-11-03T08:40:39Z",
+  "endpointHost": "rpc-futurenet.stellar.org",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "getNetwork"
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "friendbotUrl": "https://friendbot-futurenet.stellar.org/",
+      "passphrase": "Test SDF Future Network ; October 2022",
+      "protocolVersion": 29
+    }
+  }
+}

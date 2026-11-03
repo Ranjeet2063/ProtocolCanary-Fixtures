@@ -73,8 +73,8 @@ jobs:
         # committed: a fixture or payload edited without rerunning the
         # generator shows up as a changed sha256, and `git diff --exit-code`
         # prints that diff before exiting non-zero, so the log names the stale
-        # entries. protocol-29 is an empty baseline, hence --allow-empty with
-        # its matching --protocol (docs/releasing.md step 2.4).
+        # entries. Both release candidate packs must contain at least one real
+        # fixture; an empty Protocol 29 baseline cannot pass registry validation.
         #
         # `git add --intent-to-add` runs first so a registry file that a
         # commit deleted (or any not-yet-tracked registry) is shown by
@@ -83,7 +83,7 @@ jobs:
         # pushed. Runs on every push and pull request, like the steps above.
         run: |
           python3 tools/registry/generate.py protocol-28
-          python3 tools/registry/generate.py protocol-29 --allow-empty --protocol 29
+          python3 tools/registry/generate.py protocol-29
           git add --intent-to-add protocol-28/registry-v1.json protocol-29/registry-v1.json
           git diff --exit-code -- protocol-28/registry-v1.json protocol-29/registry-v1.json
 

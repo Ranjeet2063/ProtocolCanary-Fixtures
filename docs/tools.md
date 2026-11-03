@@ -382,14 +382,14 @@ Without arguments the tool performs the sync check.
 
 ## `tools/evidence/capture_live.py`
 
-Captures live read-only RPC evidence from the approved endpoint and writes one CF-04 verification record per RPC fixture of a pack. Only the read-only methods CF-04 section 8 names are called, no credentials are used, and a record is written only for a capture that actually happened. See [`docs/live-verification.md`](live-verification.md).
+Captures live read-only RPC evidence from an approved endpoint and writes one CF-04 verification record per RPC fixture of a pack. Only the read-only methods CF-04 section 8 names are called, public network passphrases are checked, no credentials are used, and a record is written only for a capture that actually happened. See [`docs/live-verification.md`](live-verification.md) and [`docs/protocol-29-live-verification.md`](protocol-29-live-verification.md).
 
 ### Synopsis
 
 ```bash
 python3 tools/evidence/capture_live.py PACK [--output-dir DIR] [--endpoint HOST]
     [--local-endpoint URL] [--capture-method METHOD] [--timeout SECONDS]
-    [--verifier-version VERSION] [--dry-run]
+    [--verifier-version VERSION] [--dry-run] [--require-matched]
 ```
 
 ### Options
@@ -397,12 +397,13 @@ python3 tools/evidence/capture_live.py PACK [--output-dir DIR] [--endpoint HOST]
 - `-h`, `--help`: show this help message and exit
 - `PACK`: the pack directory whose RPC fixtures are verified live
 - `--output-dir DIR`: where to write the captures and the records (default: `PACK/evidence/live`)
-- `--endpoint HOST`: the approved endpoint to call (default: the first approved endpoint)
+- `--endpoint HOST`: the approved endpoint to call (default: `soroban-testnet.stellar.org`)
 - `--local-endpoint URL`: a loopback mock endpoint to call instead of an approved one, for the tests and for a dry run on a fork
 - `--capture-method METHOD`: an extra read-only method to capture, on top of the ones the pack's fixtures need (repeatable)
 - `--timeout SECONDS`: how long one call may take before it is a failure (default: 30)
 - `--verifier-version VERSION`: the version to record for the verifier (default: the commit the script was read from)
 - `--dry-run`: make the calls and print what would be written, but write nothing
+- `--require-matched`: fail unless at least one fixture check executed and every fixture check matched with no skipped fixtures
 
 ### Exit Codes
 

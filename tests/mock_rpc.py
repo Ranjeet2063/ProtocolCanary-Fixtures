@@ -173,10 +173,10 @@ class MockRpcServer:
             }
         if method == "getVersionInfo":
             return {
-                "version": "28.0.0-0000000000000000000000000000000000000000",
+                "version": f"{self.protocol}.0.0-0000000000000000000000000000000000000000",
                 "commitHash": "0000000000000000000000000000000000000000",
                 "buildTimestamp": "2026-09-28T00:00:00",
-                "captiveCoreVersion": "stellar-core 28.0.0",
+                "captiveCoreVersion": f"stellar-core {self.protocol}.0.0",
                 "protocolVersion": self.protocol,
             }
         return {}

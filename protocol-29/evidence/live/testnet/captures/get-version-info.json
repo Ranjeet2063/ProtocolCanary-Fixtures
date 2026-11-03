@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-11-03T08:40:48Z",
+  "endpointHost": "soroban-testnet.stellar.org",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "getVersionInfo"
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "version": "30.0.0-13e53516633c3ce1281c7edbacb607107d3a4e55",
+      "commitHash": "13e53516633c3ce1281c7edbacb607107d3a4e55",
+      "buildTimestamp": "2026-10-20T22:36:51",
+      "captiveCoreVersion": "stellar-core 30.0.0 (0e49751aa9ddf892302cca02cea7f3f5d97df9f1)",
+      "protocolVersion": 29
+    }
+  }
+}
