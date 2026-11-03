@@ -33,6 +33,13 @@ discussion and diff. New entries must include that link; see
 
 ### Changed
 
+- Fixtures CI now installs the complete hash-locked dependency set for the
+  schema-differential suite, including the transitive `typing-extensions`
+  requirement. Source-link checks now use read-only `getNetwork` probes for
+  the approved Testnet and Futurenet RPC services, retain strict GET validation
+  for documentation URLs, and mark Friendbot roots inconclusive without
+  sending a request. See
+  [PR #483](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/483).
 - RPC contract coverage now completes F-020 (#282): `[request]` is described
   in the JSON Schema, `field-one-of` and the engine-supported `integer`
   `field-type` are validated and evaluated by the live-capture verifier; the
