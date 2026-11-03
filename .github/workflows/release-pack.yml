@@ -3,19 +3,23 @@ name: release-pack
 on:
   push:
     tags:
-      - "v*"
+      - "fixtures-p28-v*"
+      - "fixtures-p29-v*"
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       version:
         description: "Release version (MAJOR.MINOR.PATCH)"
-        required: false
-        default: "1.0.0"
-      pack:
-        description: "Pack directory to build"
-        required: false
-        default: "protocol-28"
+        required: true
+        type: string
+      protocol:
+        description: "Protocol pack to build"
+        required: true
+        type: choice
+        options:
+          - "28"
+          - "29"
 
 permissions:
   contents: write
@@ -36,32 +40,44 @@ jobs:
 
       - name: Determine release version and pack
         id: vars
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          DISPATCH_PROTOCOL: ${{ inputs.protocol }}
+          DISPATCH_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-            PACK="${{ github.event.inputs.pack }}"
-          elif [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-            VERSION="${TAG#v}"
-            PACK="protocol-28"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            python3 tools/release/select_pack.py \
+              --event "$EVENT_NAME" \
+              --protocol "$DISPATCH_PROTOCOL" \
+              --version "$DISPATCH_VERSION" >> "$GITHUB_OUTPUT"
           else
-            TAG="${GITHUB_REF_NAME}"
-            VERSION="${TAG#v}"
-            PACK="protocol-28"
+            python3 tools/release/select_pack.py \
+              --event "$EVENT_NAME" \
+              --tag "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "pack=$PACK" >> "$GITHUB_OUTPUT"
-          echo "Building pack $PACK for version $VERSION"
 
       - name: Build run-1 in clean directory
+        env:
+          PACK: ${{ steps.vars.outputs.pack }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          VERIFIED: ${{ steps.vars.outputs.verified }}
         run: |
           mkdir -p /tmp/build1
-          python3 tools/pack/pack.py "${{ steps.vars.outputs.pack }}" --version "${{ steps.vars.outputs.version }}" --output-dir /tmp/build1
+          VERIFY_ARGS=()
+          if [ "$VERIFIED" = "true" ]; then VERIFY_ARGS+=(--verified); fi
+          python3 tools/pack/pack.py "$PACK" --version "$VERSION" --output-dir /tmp/build1 "${VERIFY_ARGS[@]}"
 
       - name: Build run-2 in separate clean directory
+        env:
+          PACK: ${{ steps.vars.outputs.pack }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          VERIFIED: ${{ steps.vars.outputs.verified }}
         run: |
           mkdir -p /tmp/build2
-          python3 tools/pack/pack.py "${{ steps.vars.outputs.pack }}" --version "${{ steps.vars.outputs.version }}" --output-dir /tmp/build2
+          VERIFY_ARGS=()
+          if [ "$VERIFIED" = "true" ]; then VERIFY_ARGS+=(--verified); fi
+          python3 tools/pack/pack.py "$PACK" --version "$VERSION" --output-dir /tmp/build2 "${VERIFY_ARGS[@]}"
 
       - name: Assert bit-for-bit identical hashes across independent builds
         run: |
@@ -107,7 +123,7 @@ jobs:
           (cd /tmp/build1 && sha256sum -c "$CHECKSUM")
 
       - name: Generate build provenance attestations
-        if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+        if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/fixtures-p'))
         uses: actions/attest-build-provenance@c074443f1b5fb4a4829eec0244487a870fa861e6 # v2.2.3
         with:
           subject-path: |
@@ -122,5 +138,4 @@ jobs:
           gh release upload "${{ github.event.release.tag_name }}" \
             "/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.tar.gz" \
             "/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.manifest.json" \
-            "/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.sha256" \
-            --clobber
+            "/tmp/build1/protocolcanary-fixtures-${{ steps.vars.outputs.version }}.sha256"

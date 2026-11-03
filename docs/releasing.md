@@ -17,9 +17,10 @@ CI execution:
 
 - **Manual steps (maintainer):**
   1. Complete pre-release quality and consistency checks.
-  2. Select the release version (Semantic Versioning `MAJOR.MINOR.PATCH`).
+  2. Select the protocol pack and release version (Semantic Versioning `MAJOR.MINOR.PATCH`).
   3. Update `CHANGELOG.md` with the release version and UTC date.
-  4. Create and push an immutable git tag (`vX.Y.Z` or `protocol-NN`).
+  4. Create and push an immutable, protocol-scoped git tag:
+     `fixtures-p28-vX.Y.Z` or `fixtures-p29-vX.Y.Z`.
 - **Automated steps (`.github/workflows/release-pack.yml`):**
   1. Builds the release archive twice in independent passes/directories.
   2. Asserts bit-for-bit identical archive hashes (SHA-256).
@@ -80,14 +81,25 @@ For non-empty packs (such as `protocol-28`):
 python3 tools/registry/generate.py protocol-28 --stdout
 ```
 
-For intentionally empty baselines (such as `protocol-29`), supply `--allow-empty`
-and the matching `--protocol`:
+An empty pack cannot be promoted as verified. Do not generate a release registry
+for an empty baseline. Protocol 29 registry generation is expected to succeed
+only after its real, sourced fixture coverage has been added:
 
 ```bash
-python3 tools/registry/generate.py protocol-29 --allow-empty --protocol 29 --stdout
+python3 tools/registry/generate.py protocol-29 --stdout
 ```
 
-### Step 2.5: CHANGELOG and version selection
+### Step 2.5: Protocol 29 live coverage
+
+Before selecting Protocol 29 for a release, require a current matched
+`live-read-only` record and linked raw capture for every fixture on both Testnet
+and Futurenet. Records must identify the actual network, endpoint host, UTC
+observation time, observed protocol 29, fixture SHA-256 and evidence reference.
+The release packer enforces both networks and the 30-day live-evidence freshness
+window; structural records and records under `history/` do not satisfy it.
+Protocol 28 releases keep their existing unverified packing behavior.
+
+### Step 2.6: CHANGELOG and version selection
 1. Choose an exact version string following `MAJOR.MINOR.PATCH` (e.g. `0.1.0`).
 2. Update the `## [Unreleased]` section in [`CHANGELOG.md`](../CHANGELOG.md) by
    creating a new heading for the version with the current UTC date in
@@ -106,6 +118,13 @@ Run `tools/pack/pack.py`:
 
 ```bash
 python3 tools/pack/pack.py protocol-28 --version 0.1.0 --output-dir dist
+```
+
+For a Protocol 29 candidate, include `--verified`; this fails closed unless
+every fixture has current live evidence on both Testnet and Futurenet:
+
+```bash
+python3 tools/pack/pack.py protocol-29 --version 0.1.0 --output-dir dist --verified
 ```
 
 Expected output:
@@ -173,9 +192,15 @@ protocolcanary-fixtures-0.1.0.tar.gz: OK
 ## 4. Tag Naming Rules and Immutability
 
 ### Tag naming convention
-Releases are triggered by pushing a git tag matching one of two patterns:
-- Version tags: `v<MAJOR>.<MINOR>.<PATCH>` (e.g. `v0.1.0`)
-- Protocol tags: `protocol-<NN>` (e.g. `protocol-28`)
+Releases are selected with an explicit protocol in the tag:
+- Protocol 28: `fixtures-p28-v<MAJOR>.<MINOR>.<PATCH>`
+- Protocol 29: `fixtures-p29-v<MAJOR>.<MINOR>.<PATCH>`
+
+For example, `fixtures-p29-v0.1.0` selects only `protocol-29`. Unscoped tags
+such as `v0.1.0`, `fixtures-v0.1.0` and `protocol-29` are rejected by the
+release selector; they never default to Protocol 28. The manual workflow
+dispatch requires both a protocol choice and a semantic version and only builds
+the candidate. It does not attest or publish assets.
 
 ### Immutability guarantee
 **Published tags are never moved and never deleted.**
@@ -191,12 +216,24 @@ strictly to specific git tags and commit hashes. Once a tag is pushed to
 
 ## 5. Publishing the Release
 
-Once pre-release checks pass and the commit is on `main`, create and push the tag:
+Once pre-release checks pass and the commit is on `main`, create and push the
+protocol-scoped tag. For a Protocol 29 release:
 
 ```bash
-git tag -a v0.1.0 -m "Release v0.1.0"
-git push upstream v0.1.0
+git tag -a fixtures-p29-v0.1.0 -m "Protocol 29 fixture pack 0.1.0"
+git push upstream fixtures-p29-v0.1.0
 ```
+
+Use `fixtures-p28-v0.1.0` for Protocol 28. A published release event must use
+the same scoped tag. The workflow publishes exactly three assets to that
+GitHub Release:
+
+1. `protocolcanary-fixtures-<version>.tar.gz`
+2. `protocolcanary-fixtures-<version>.manifest.json`
+3. `protocolcanary-fixtures-<version>.sha256`
+
+GitHub build-provenance attestations are generated for the archive and manifest.
+Uploads do not replace existing assets; a duplicate asset name fails.
 
 The `.github/workflows/release-pack.yml` workflow triggers automatically on tag
 push:
