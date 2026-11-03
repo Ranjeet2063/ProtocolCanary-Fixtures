@@ -167,7 +167,7 @@ jobs:
           path: dist
 
       - name: Attest archive and manifest
-        uses: actions/attest-build-provenance@c074443f1b5fb4a4829eec0244487a870fa861e6 # v2.2.3
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
           subject-path: |
             dist/protocolcanary-fixtures-${{ needs.build.outputs.version }}.tar.gz
