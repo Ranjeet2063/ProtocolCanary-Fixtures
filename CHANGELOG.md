@@ -33,6 +33,13 @@ discussion and diff. New entries must include that link; see
 
 ### Changed
 
+- Protocol 29 now has a sourced RPC identity fixture asserting that
+  `getVersionInfo` reports protocol 29. The old mismatch-named structural
+  records remain unchanged under `protocol-29/evidence/history/verification/`;
+  fresh read-only captures and records separately verify the fixture on
+  Testnet and Futurenet. The fixture-to-RPC mapping, endpoint passphrase checks
+  and a distinct two-network scheduled evidence workflow are covered by tests.
+  See [PR #482](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/482).
 - RPC contract coverage now completes F-020 (#282): `[request]` is described
   in the JSON Schema, `field-one-of` and the engine-supported `integer`
   `field-type` are validated and evaluated by the live-capture verifier; the
