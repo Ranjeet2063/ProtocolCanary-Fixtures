@@ -12,6 +12,7 @@ discussion and diff. New entries must include that link; see
 
 ### Added
 
+- Initial Protocol 30 Testnet RPC version-info fixture, live read-only evidence, pack registry and negative version tests. Existing Protocol 29 fixtures are unchanged. [PR #488](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/488).
 - A JSON Schema for the `--format json` report the validator prints (#333).
   `schemas/validator-report-v1.schema.json` describes the F-023 document --
   the `valid` flag, the `errors` and `warnings` diagnostics (`path`, `id`,

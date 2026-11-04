@@ -1,0 +1,17 @@
+# Testnet Protocol 30 identity. Live captures and timestamps are separate.
+# Bell upgrade: https://stellar.org/blog/developers/bell-protocol-30-upgrade-guide
+# The failure of the old P29 fixture was observed at:
+# https://github.com/StellarCanary/ProtocolCanary-Action/actions/runs/41810837579
+id = "p30-rpc-version-info-protocol-30"
+protocol = 30
+surface = "rpc"
+category = "network"
+description = "get-version-info reports protocol 30 on the upgraded Testnet endpoint."
+source_reference = "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getVersionInfo"
+
+method = "get-version-info"
+
+[[assert]]
+kind = "field-equals"
+field = "protocolVersion"
+value = 30

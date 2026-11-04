@@ -1,0 +1,17 @@
+{
+  "registryVersion": 1,
+  "protocol": 30,
+  "fixtures": [
+    {
+      "id": "p30-rpc-version-info-protocol-30",
+      "path": "rpc/p30-rpc-version-info-protocol-30.toml",
+      "sha256": "b73ad56dfcc53633ef1aa86bd8b1fecaa23d563836a25406081d1f052aa81ae9",
+      "surface": "rpc",
+      "category": "network",
+      "description": "get-version-info reports protocol 30 on the upgraded Testnet endpoint.",
+      "sourceReference": "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getVersionInfo",
+      "payloads": []
+    }
+  ],
+  "packDigest": "sha256:ef5981b86a0e8004620bf1d41765f3e367bced0391d4f2f01d7a3d3737a5944e"
+}

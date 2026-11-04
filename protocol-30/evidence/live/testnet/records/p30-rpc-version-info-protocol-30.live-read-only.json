@@ -1,0 +1,19 @@
+{
+  "verificationVersion": 1,
+  "fixtureId": "p30-rpc-version-info-protocol-30",
+  "fixtureSha256": "b73ad56dfcc53633ef1aa86bd8b1fecaa23d563836a25406081d1f052aa81ae9",
+  "method": "live-read-only",
+  "checkedAt": "2026-11-04T10:38:08Z",
+  "verifier": {
+    "name": "protocolcanary-fixtures-capture-live",
+    "version": "347ad6846d46b7bdf605a299501354563d79f2d9"
+  },
+  "outcome": "matched",
+  "network": {
+    "name": "testnet",
+    "passphrase": "Test SDF Network ; September 2015",
+    "observedProtocol": 30
+  },
+  "endpointHost": "soroban-testnet.stellar.org",
+  "evidenceRef": "protocol-30/evidence/live/testnet/captures/get-version-info.json"
+}
