@@ -490,6 +490,10 @@ def _check_protocol30_live_evidence(
         capture_dir = pack / "evidence" / "live" / "testnet" / "captures"
         version_path = capture_dir / "get-version-info.json"
         network_path = capture_dir / "get-network.json"
+        # Check the resolved parent too: a symlinked capture directory can
+        # otherwise escape the fixture pack while the individual files look normal.
+        if capture_dir.resolve() != pack.resolve() / "evidence/live/testnet/captures":
+            raise PackError(f"Protocol 30 capture directory resolves outside the pack: {capture_dir}")
         for item in (version_path, network_path):
             if item.is_symlink() or not item.is_file():
                 raise PackError(f"Protocol 30 required capture is missing or a symlink: {item}")
@@ -507,6 +511,9 @@ def _check_protocol30_live_evidence(
                 or not isinstance(result, dict)
                 or request.get("jsonrpc") != "2.0"
                 or response.get("jsonrpc") != "2.0"
+                or type(request.get("id")) not in (int, str)
+                or (isinstance(request.get("id"), str) and not request["id"])
+                or type(response.get("id")) is not type(request.get("id"))
                 or request.get("id") != response.get("id")
                 or request.get("method") != method
                 or "error" in response

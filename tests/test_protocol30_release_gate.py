@@ -70,6 +70,22 @@ class Protocol30ReleaseEvidenceTests(unittest.TestCase):
         self.network.unlink()
         self.assert_rejected("missing or a symlink")
 
+    def test_missing_json_rpc_ids_are_rejected(self):
+        self.mutate(self.version, lambda c: (c["request"].pop("id"), c["response"].pop("id")))
+        self.assert_rejected("incorrect RPC identity")
+
+    def test_json_rpc_id_type_mismatch_is_rejected(self):
+        self.mutate(self.version, lambda c: c["response"].update(id=2.0))
+        self.assert_rejected("incorrect RPC identity")
+
+    @unittest.skipIf(sys.platform == "win32", "symlink privileges vary on Windows")
+    def test_symlinked_capture_directory_is_rejected(self):
+        capture_dir = self.version.parent
+        outside = self.pack_dir.parent / "external-captures"
+        capture_dir.rename(outside)
+        capture_dir.symlink_to(outside, target_is_directory=True)
+        self.assert_rejected("symbolic link|resolves outside the pack")
+
     def test_wrong_endpoint_host_fails(self):
         self.mutate(self.version, lambda c: c.update(endpointHost="example.invalid"))
         self.assert_rejected("incorrect RPC identity")
