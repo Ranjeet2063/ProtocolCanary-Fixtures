@@ -109,7 +109,7 @@ class UpstreamMatrixDocsTests(unittest.TestCase):
     def test_the_page_documents_protocols_28_and_29_on_both_networks(self) -> None:
         self.assertEqual(
             set(self.sections),
-            {("28", "Testnet"), ("28", "Mainnet"), ("29", "Testnet"), ("29", "Mainnet")},
+            {("28", "Testnet"), ("28", "Mainnet"), ("29", "Testnet"), ("29", "Mainnet"), ("30", "Testnet")},
         )
 
     def test_every_section_lists_core_rpc_horizon_and_the_host_environment(self) -> None:

@@ -1,0 +1,8 @@
+Checks: executed=1 passed=1 failed=0 skipped=0
+Endpoint: soroban-testnet.stellar.org (testnet)
+Captures: 2
+  protocol-30/evidence/live/testnet/captures/get-network.json
+  protocol-30/evidence/live/testnet/captures/get-version-info.json
+Records: 1
+  p30-rpc-version-info-protocol-30: matched
+OK: the captures and the records are written

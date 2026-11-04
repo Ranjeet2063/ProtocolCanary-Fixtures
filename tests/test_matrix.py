@@ -73,7 +73,7 @@ class ShippedMatrixTests(MatrixCase):
         self.assertEqual(target, SCHEMA_PATH.resolve())
 
     def test_it_covers_protocols_28_and_29(self) -> None:
-        self.assertEqual(set(self.matrix["protocols"]), {"28", "29"})
+        self.assertEqual(set(self.matrix["protocols"]), {"28", "29", "30"})
 
     def test_every_protocol_has_every_component(self) -> None:
         for protocol, section in self.matrix["protocols"].items():

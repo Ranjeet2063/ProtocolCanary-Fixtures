@@ -84,8 +84,9 @@ jobs:
         run: |
           python3 tools/registry/generate.py protocol-28
           python3 tools/registry/generate.py protocol-29
-          git add --intent-to-add protocol-28/registry-v1.json protocol-29/registry-v1.json
-          git diff --exit-code -- protocol-28/registry-v1.json protocol-29/registry-v1.json
+          python3 tools/registry/generate.py protocol-30
+          git add --intent-to-add protocol-28/registry-v1.json protocol-29/registry-v1.json protocol-30/registry-v1.json
+          git diff --exit-code -- protocol-28/registry-v1.json protocol-29/registry-v1.json protocol-30/registry-v1.json
 
       - name: Repository tests
         run: python3 -u -m unittest discover tests -v

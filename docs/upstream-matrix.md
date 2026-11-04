@@ -1,9 +1,9 @@
 # Upstream version matrix
 
-Which upstream releases the Protocol 28 and Protocol 29 fixture baselines
-correspond to: the Stellar Core, Stellar RPC, Stellar Horizon and Soroban host
-environment versions, the commit each release tag points at, and the network
-passphrases a client must use.
+Upstream release versions and pinned tags for Protocol 28, Protocol 29,
+and the first Protocol 30 Testnet identity fixture, including Stellar Core,
+Stellar RPC, Stellar Horizon and the Soroban host environment. A public
+release tag alone does not establish a live network protocol version.
 
 This page is for people. The same information as data, for tooling, is in
 [`upstream-matrix.json`](../upstream-matrix.json), described by
@@ -15,12 +15,14 @@ falls inside the range that file records.
 
 - **Versions and dates:** the Stellar developer documentation's
   [Software versions](https://developers.stellar.org/docs/networks/software-versions)
-  page, read on 2026-10-15. That page is the authority for which release
-  belongs to which protocol and network.
-- **Commits:** each release tag was resolved to the commit it points at in the
-  upstream repository (`git ls-remote`, and the GitHub API to confirm that each
-  tag is a lightweight tag, so the commit is the tag's own). The tags carry no
-  annotation, so there is no separate tag object to cite.
+  page, read on 2026-10-15 for the Protocol 28/29 baselines. Protocol 30
+  release versions were checked on 2026-11-04 against the
+  [Bell Upgrade Guide](https://stellar.org/blog/developers/bell-protocol-30-upgrade-guide)
+  and the upstream GitHub release tags.
+- **Commits:** upstream release tags were resolved using `git ls-remote`
+  and GitHub's Git API. Lightweight tags point directly to commits, while
+  annotated tags must be peeled to their commit objects. Stellar RPC's
+  `v30.0.0` tag is annotated and was peeled to its commit.
 - **Repository names:** Stellar RPC is `stellar/stellar-rpc` (the project was
   formerly `soroban-rpc`, and `stellar/soroban-rpc` redirects to it). Stellar
   Horizon is `stellar/stellar-horizon`; releases up to `horizon-v24.0.0` live in
@@ -96,6 +98,37 @@ Released to Mainnet on 2026-10-01. The software is the same as on Testnet.
 | Stellar RPC (`soroban-rpc`) | `v29.0.0` | [`8a401697`](https://github.com/stellar/stellar-rpc/commit/8a40169717723697e430c1e51c21ef0bf244ecda) |
 | Stellar Horizon | `v29.0.0` | [`c9e48b64`](https://github.com/stellar/stellar-horizon/commit/c9e48b645f0777f19135109d3de5c46160cea737) |
 | Soroban host environment (`rs-soroban-env`) | `v29.0.0` | [`a721944b`](https://github.com/stellar/rs-soroban-env/commit/a721944b5a4ea830a4bf5c2dbb8dbe8c1e1354c5) |
+
+## Protocol 30
+
+The Bell protocol upgrade includes CAP-0084, CAP-0087 and CAP-0088.
+The official
+[Bell Upgrade Guide](https://stellar.org/blog/developers/bell-protocol-30-upgrade-guide)
+lists the stable Protocol 30 infrastructure releases. The live Testnet check
+on November 4, 2026 confirmed `getVersionInfo.protocolVersion = 30`;
+see [`protocol-30/`](../protocol-30/) for captured responses and verification
+records. This is RPC identity evidence, **not** coverage of Protocol 30
+XDR, smart-contract behavior or transactions.
+
+### Testnet
+
+Activated after the November 3, 2026 Testnet vote.
+
+| Component | Release | Commit |
+|---|---|---|
+| Stellar Core | `v30.0.0` | [`0e49751a`](https://github.com/stellar/stellar-core/commit/0e49751aa9ddf892302cca02cea7f3f5d97df9f1) |
+| Stellar RPC (`soroban-rpc`) | `v30.0.0` | [`13e53516`](https://github.com/stellar/stellar-rpc/commit/13e53516633c3ce1281c7edbacb607107d3a4e55) |
+| Stellar Horizon | `v30.0.0` | [`b3ff4119`](https://github.com/stellar/stellar-horizon/commit/b3ff4119cc99ebcc8048334f5ec64e78c16d1666) |
+| Soroban host environment (`rs-soroban-env`) | `v30.0.0` | [`0c99950e`](https://github.com/stellar/rs-soroban-env/commit/0c99950e96128beba3319aa96b116646ce974e69) |
+
+These commits were resolved from upstream `v30.0.0` GitHub tag refs on
+November 4, 2026. The Stellar RPC tag is annotated and was peeled to
+its commit. The upstream tags describe public software releases; they
+do not prove which exact binaries are running on every Testnet node.
+
+**Mainnet is not listed under Protocol 30.** Its upgrade vote is scheduled
+for November 23, 2026. No Mainnet activation or live compatibility is
+claimed.
 
 ## A node's reported build is not always the tag's commit
 

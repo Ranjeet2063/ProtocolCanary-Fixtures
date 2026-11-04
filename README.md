@@ -4,7 +4,7 @@
 ![ProtocolCanary-Fixtures](assets/ProtocolCanary-Fixtures-banner.svg)
 
 
-[![Validate](https://github.com/StellarCanary/ProtocolCanary-Fixtures/actions/workflows/validate.yml/badge.svg)](https://github.com/StellarCanary/ProtocolCanary-Fixtures/actions/workflows/validate.yml) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) <!-- fixtures-badge:start -->[![Fixtures: 94](https://img.shields.io/badge/fixtures-94-blue.svg)](#protocol-packs)<!-- fixtures-badge:end -->
+[![Validate](https://github.com/StellarCanary/ProtocolCanary-Fixtures/actions/workflows/validate.yml/badge.svg)](https://github.com/StellarCanary/ProtocolCanary-Fixtures/actions/workflows/validate.yml) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) <!-- fixtures-badge:start -->[![Fixtures: 95](https://img.shields.io/badge/fixtures-95-blue.svg)](#protocol-packs)<!-- fixtures-badge:end -->
 
 Canonical compatibility fixtures for Stellar Protocol Canary.
 
@@ -120,6 +120,8 @@ separate Testnet/Futurenet workflow is described in
 
 | Pack | Status | Notes |
 |---|---|---|
+| [`protocol-30/`](protocol-30/) | Testnet candidate | One live RPC identity fixture; not full Protocol 30 support. See [verification](docs/protocol-30-live-verification.md). |
+| [`protocol-29/`](protocol-29/) | Published | One RPC version-info fixture, still applicable to Futurenet. Historical Testnet records are preserved. |
 | [`protocol-28/`](protocol-28/) | Active | CAP-0083, CAP-0085 (XDR); Protocol 28 RPC identity; a Soroban simulation smoke fixture. Fixture counts by surface: **4 xdr, 1 rpc, 1 soroban** (6 total). See [`docs/protocol-28.md`](docs/protocol-28.md). |
 | [`protocol-27/`](protocol-27/) | Not yet populated | **0 fixtures.** See [`protocol-27/README.md`](protocol-27/README.md) — fixtures are added only after their upstream behavior is independently verified, never as placeholders. |
 
