@@ -20,7 +20,7 @@ SELECTOR_SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "release" / "s
 
 class PackSelectionTests(unittest.TestCase):
     def test_versioned_tags_select_exact_protocol_and_version(self) -> None:
-        for protocol in ("28", "29"):
+        for protocol in ("28", "29", "30"):
             with self.subTest(protocol=protocol):
                 self.assertEqual(
                     selector.select(
@@ -30,7 +30,7 @@ class PackSelectionTests(unittest.TestCase):
                         "pack": f"protocol-{protocol}",
                         "protocol": protocol,
                         "version": "1.2.3",
-                        "verified": "true" if protocol == "29" else "false",
+                        "verified": "true" if protocol in ("29", "30") else "false",
                     },
                 )
 
@@ -42,8 +42,13 @@ class PackSelectionTests(unittest.TestCase):
         self.assertEqual(selected["version"], "2.0.1")
         self.assertEqual(selected["verified"], "true")
 
+    def test_protocol30_manual_dispatch_requires_verified_pack(self) -> None:
+        selected = selector.select(event="workflow_dispatch", protocol="30", version="0.1.0")
+        self.assertEqual(selected["pack"], "protocol-30")
+        self.assertEqual(selected["verified"], "true")
+
     def test_unscoped_or_legacy_tags_are_rejected(self) -> None:
-        for tag in ("v1.2.3", "fixtures-v1.2.3", "protocol-29", "fixtures-p30-v1.2.3"):
+        for tag in ("v1.2.3", "fixtures-v1.2.3", "protocol-29", "fixtures-p31-v1.2.3"):
             with self.subTest(tag=tag), self.assertRaises(selector.SelectionError):
                 selector.select(event="release", tag=tag)
 
@@ -56,7 +61,7 @@ class PackSelectionTests(unittest.TestCase):
         with self.assertRaises(selector.SelectionError):
             selector.select(event="push", tag="fixtures-p28-v1.2.3", protocol="28")
         with self.assertRaises(selector.SelectionError):
-            selector.select(event="workflow_dispatch", protocol="30", version="1.2.3")
+            selector.select(event="workflow_dispatch", protocol="31", version="1.2.3")
         with self.assertRaises(selector.SelectionError):
             selector.select(event="workflow_dispatch", tag="fixtures-p29-v1.2.3", protocol="29", version="1.2.3")
         with self.assertRaises(selector.SelectionError):
@@ -201,6 +206,17 @@ class ReleaseRefValidationTests(unittest.TestCase):
                 self.assertEqual(selection["pack"], "protocol-29")
                 self.assertEqual(selection["verified"], "true")
                 self.assertEqual(selection["commit"], self.main_sha)
+
+    def test_protocol30_ref_validation_keeps_main_ancestry(self) -> None:
+        tag = "fixtures-p30-v0.1.0"
+        self.git("tag", tag)
+        for event in ("push", "release"):
+            selected = selector.validate_release_ref(
+                event=event, tag=tag, ref=f"refs/tags/{tag}",
+                sha=self.main_sha, repo=self.repo,
+            )
+            self.assertEqual(selected["pack"], "protocol-30")
+            self.assertEqual(selected["verified"], "true")
 
     def test_release_ref_must_match_event_tag_and_commit(self) -> None:
         tag = "fixtures-p28-v1.2.3"

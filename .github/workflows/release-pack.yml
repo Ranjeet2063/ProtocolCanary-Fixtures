@@ -5,6 +5,7 @@ on:
     tags:
       - "fixtures-p28-v*"
       - "fixtures-p29-v*"
+      - "fixtures-p30-v*"
   release:
     types: [published]
   workflow_dispatch:
@@ -20,6 +21,7 @@ on:
         options:
           - "28"
           - "29"
+          - "30"
 
 permissions: {}
 

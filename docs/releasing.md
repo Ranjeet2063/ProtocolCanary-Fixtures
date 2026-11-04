@@ -20,7 +20,7 @@ Release asset publication:
   2. Select the protocol pack and release version (Semantic Versioning `MAJOR.MINOR.PATCH`).
   3. Update `CHANGELOG.md` with the release version and UTC date.
   4. Ensure the candidate commit is on protected `main`, then create and push
-     its protocol-scoped tag: `fixtures-p28-vX.Y.Z` or `fixtures-p29-vX.Y.Z`.
+     its protocol-scoped tag: `fixtures-p28-vX.Y.Z`, `fixtures-p29-vX.Y.Z`, or `fixtures-p30-vX.Y.Z`.
   5. After the tag workflow succeeds, publish a GitHub Release for that exact
      tag when ready to distribute the assets.
 - **Tag-push automation (`.github/workflows/release-pack.yml`):** selects the
@@ -51,7 +51,7 @@ python3 tools/validate/validate.py
 
 Expected output:
 ```
-OK: 94 fixture file(s) valid across 3 root(s)
+OK: 95 fixture file(s) valid across 4 root(s)
 ```
 
 ### Step 2.2: Fixtures count badge freshness
@@ -63,7 +63,7 @@ python3 tools/badge/badge.py --check
 
 Expected output:
 ```
-OK: README.md fixtures badge is current (94 fixture file(s))
+OK: README.md fixtures badge is current (95 fixture file(s))
 ```
 
 ### Step 2.3: Repository test suite
@@ -104,7 +104,17 @@ The release packer enforces both networks and the 30-day live-evidence freshness
 window; structural records and records under `history/` do not satisfy it.
 Protocol 28 releases keep their existing unverified packing behavior.
 
-### Step 2.6: CHANGELOG and version selection
+### Step 2.6: Protocol 30 Testnet evidence gate
+
+Protocol 30 releases must have a fresh, matched, read-only verification
+record linked to two coherent raw Testnet captures (`getVersionInfo`
+and `getNetwork`). The release gate requires the correct Testnet
+passphrase, Protocol 30, endpoint host, fixture hash, UTC observation
+times and the exact supported identity assertion. Evidence must be
+no more than 30 days old. This is **RPC identity only**, not XDR,
+Soroban, Mainnet or Futurenet Protocol 30 verification.
+
+### Step 2.7: CHANGELOG and version selection
 1. Choose an exact version string following `MAJOR.MINOR.PATCH` (e.g. `0.1.0`).
 2. Update the `## [Unreleased]` section in [`CHANGELOG.md`](../CHANGELOG.md) by
    creating a new heading for the version with the current UTC date in
@@ -130,6 +140,13 @@ every fixture has current live evidence on both Testnet and Futurenet:
 
 ```bash
 python3 tools/pack/pack.py protocol-29 --version 0.1.0 --output-dir dist --verified
+```
+
+For Protocol 30, the same `--verified` release option requires fresh
+Testnet-only evidence (it does not require Protocol 30 Futurenet):
+
+```bash
+python3 tools/pack/pack.py protocol-30 --version 0.1.0 --output-dir dist --verified
 ```
 
 Expected output:
@@ -200,6 +217,7 @@ protocolcanary-fixtures-0.1.0.tar.gz: OK
 Releases are selected with an explicit protocol in the tag:
 - Protocol 28: `fixtures-p28-v<MAJOR>.<MINOR>.<PATCH>`
 - Protocol 29: `fixtures-p29-v<MAJOR>.<MINOR>.<PATCH>`
+- Protocol 30: `fixtures-p30-v<MAJOR>.<MINOR>.<PATCH>`
 
 For example, `fixtures-p28-v0.1.0` selects only `protocol-28`, and
 `fixtures-p29-v0.1.0` selects only `protocol-29`. Unscoped tags such as
@@ -209,8 +227,8 @@ requires both a protocol choice and a semantic version and only builds the
 candidate. It does not attest or publish assets.
 
 ### Required tag ruleset
-A GitHub repository tag ruleset is required for release tags (`fixtures-p28-v*`
-and `fixtures-p29-v*`). Configure it to restrict tag creation to authorized
+A GitHub repository tag ruleset is required for release tags (`fixtures-p28-v*`,
+`fixtures-p29-v*`, and `fixtures-p30-v*`). Configure it to restrict tag creation to authorized
 maintainers and block tag updates and deletion. Protect `main` with the
 repository's normal review and status-check rules.
 
@@ -237,7 +255,8 @@ git tag -a fixtures-p29-v0.1.0 -m "Protocol 29 fixture pack 0.1.0"
 git push upstream fixtures-p29-v0.1.0
 ```
 
-Use `fixtures-p28-v0.1.0` for Protocol 28. A successful tag-push workflow
+Use `fixtures-p28-v0.1.0` for Protocol 28 or `fixtures-p30-v0.1.0`
+for Protocol 30, after confirming the Protocol 30 tag ruleset. A successful tag-push workflow
 builds and attests the archive and manifest, but does not upload release assets.
 After reviewing its result, create and publish a GitHub Release using that same
 scoped tag. The `release.published` workflow event rebuilds and verifies the

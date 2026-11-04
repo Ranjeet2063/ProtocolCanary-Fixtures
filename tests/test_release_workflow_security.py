@@ -78,6 +78,11 @@ class ReleaseWorkflowSecurityTests(unittest.TestCase):
         self.assertIn("gh release upload", publish)
         self.assertNotIn("--clobber", publish)
 
+    def test_p30_tag_is_supported_without_broadening_publish_permissions(self) -> None:
+        self.assertIn('"fixtures-p30-v*"', self.workflow)
+        self.assertIn('          - "30"', self.workflow)
+        self.assertIn("fixtures-p30-v*", self.docs)
+
     def test_release_docs_require_tag_rules_and_use_current_scoped_examples(self) -> None:
         docs = self.docs.lower()
         self.assertIn("tag ruleset", docs)
@@ -88,7 +93,7 @@ class ReleaseWorkflowSecurityTests(unittest.TestCase):
         self.assertIn("release.published", docs)
         self.assertIn("fixtures-p28-v0.1.0", docs)
         self.assertIn("fixtures-p29-v0.1.0", docs)
-        self.assertIn("94 fixture file(s) valid across 3 root(s)", docs)
+        self.assertIn("95 fixture file(s) valid across 4 root(s)", docs)
         self.assertIn("93 fixture(s), 93 file(s) valid", docs)
         self.assertNotIn("OK: 31 fixture file(s)", docs)
         self.assertNotIn("(e.g. `v0.1.1`)", docs)
