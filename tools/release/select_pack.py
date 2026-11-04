@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 _VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
-_TAG = re.compile(rf"fixtures-p(28|29)-v({_VERSION})")
+_TAG = re.compile(rf"fixtures-p(28|29|30)-v({_VERSION})")
 
 
 class SelectionError(ValueError):
@@ -85,14 +85,14 @@ def select(*, event: str, tag: str = "", protocol: str = "", version: str = "") 
         if match is None:
             raise SelectionError(
                 f"unsupported or ambiguous release tag {tag!r}; expected "
-                "fixtures-p28-vMAJOR.MINOR.PATCH or fixtures-p29-vMAJOR.MINOR.PATCH"
+                "fixtures-p28-vMAJOR.MINOR.PATCH, fixtures-p29-vMAJOR.MINOR.PATCH or fixtures-p30-vMAJOR.MINOR.PATCH"
             )
         protocol, version = match.groups()
     elif event == "workflow_dispatch":
         if tag:
             raise SelectionError("manual dispatch selects a pack from protocol and version inputs")
-        if protocol not in ("28", "29"):
-            raise SelectionError("manual dispatch protocol must be 28 or 29")
+        if protocol not in ("28", "29", "30"):
+            raise SelectionError("manual dispatch protocol must be 28, 29 or 30")
         if not re.fullmatch(_VERSION, version):
             raise SelectionError("manual dispatch version must be MAJOR.MINOR.PATCH")
     else:
@@ -102,7 +102,7 @@ def select(*, event: str, tag: str = "", protocol: str = "", version: str = "") 
         "pack": f"protocol-{protocol}",
         "protocol": protocol,
         "version": version,
-        "verified": "true" if protocol == "29" else "false",
+        "verified": "true" if protocol in ("29", "30") else "false",
     }
 
 

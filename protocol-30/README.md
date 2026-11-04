@@ -15,5 +15,7 @@ The repository's read-only capture tool must create evidence under
 `evidence/live/testnet/`. Without a passing fresh capture and its matched
 verification record, do not claim this pack is verified.
 
-The current pack-release selector supports only Protocol 28 and 29. This
-initial fixture does **not** authorize a Protocol 30 release tag.
+The release selector supports a Protocol 30 scoped tag only when
+the Testnet-only verified evidence gate passes. This fixture still proves
+only RPC protocol identity. A release requires a separately reviewed tag,
+protected tag ruleset, archive verification and provenance attestation.

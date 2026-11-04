@@ -192,11 +192,9 @@ def check_limits(members: dict[str, bytes], directories: list[str]) -> None:
 def check_verified_evidence(pack: Path) -> None:
     """Require current CF-04 evidence for every fixture in ``pack``.
 
-    Protocol 29 release verification is deliberately stronger than ordinary
-    evidence coverage: every fixture needs a fresh read-only observation on
-    both public test networks, tied to the saved RPC captures. Historical
-    evidence under ``history/`` remains available but cannot satisfy a release
-    gate.
+    Protocol 29 releases require fresh evidence on both Testnet and Futurenet.
+    Protocol 30 releases require fresh Testnet-only RPC identity evidence.
+    Stored records under ``history/`` cannot satisfy either release gate.
     """
     try:
         scanned = generate.scan_pack(pack)
@@ -251,6 +249,8 @@ def check_verified_evidence(pack: Path) -> None:
 
     if registry["protocol"] == 29:
         _check_protocol29_live_evidence(pack, registry, fixture_hashes, records, now)
+    elif registry["protocol"] == 30:
+        _check_protocol30_live_evidence(pack, registry, fixture_hashes, records, now)
 
 
 _PROTOCOL29_NETWORKS = {
@@ -413,6 +413,140 @@ def _check_protocol29_live_evidence(
             raise PackError(
                 f"Protocol 29 network identity capture does not match {network}: {network_capture_path}"
             )
+
+
+_PROTOCOL30_TESTNET = {
+    "host": "soroban-testnet.stellar.org",
+    "passphrase": "Test SDF Network ; September 2015",
+}
+_PROTOCOL30_LIVE_FRESHNESS = datetime.timedelta(days=30)
+_PROTOCOL30_CAPTURE_WINDOW = datetime.timedelta(minutes=5)
+
+
+def _check_protocol30_live_evidence(
+    pack: Path,
+    registry: dict,
+    fixture_hashes: dict[str, str],
+    records: list[tuple[Path, dict]],
+    now: datetime.datetime,
+) -> None:
+    """Require fresh, coherent, Testnet-only RPC evidence for every P30 fixture.
+
+    This validates stored live-capture records; it is not cryptographic proof
+    of an RPC response or of compatibility beyond declared assertions.
+    """
+    if len(records) != len(fixture_hashes):
+        raise PackError("Protocol 30 release requires exactly one Testnet live record per fixture")
+
+    expected_ids = set(fixture_hashes)
+    observed_ids: set[str] = set()
+    for record_path, record in records:
+        fixture_id = record["fixtureId"]
+        if fixture_id not in expected_ids or fixture_id in observed_ids:
+            raise PackError(f"Protocol 30 unexpected or duplicate live record: {record_path}")
+        observed_ids.add(fixture_id)
+        if record_path.is_symlink() or record_path.relative_to(pack / "evidence").parts[:3] != (
+            "live", "testnet", "records"
+        ):
+            raise PackError(f"Protocol 30 record must be under Testnet live records: {record_path}")
+        if record["method"] != "live-read-only":
+            raise PackError(f"Protocol 30 release requires live-read-only evidence: {record_path}")
+        if record["outcome"] != "matched" or record["fixtureSha256"] != fixture_hashes[fixture_id]:
+            raise PackError(f"Protocol 30 record outcome or fixture digest mismatch: {record_path}")
+        if record.get("verifier", {}).get("name") != "protocolcanary-fixtures-capture-live":
+            raise PackError(f"Protocol 30 record has an unexpected verifier: {record_path}")
+        network = record.get("network", {})
+        if (
+            network.get("name") != "testnet"
+            or network.get("passphrase") != _PROTOCOL30_TESTNET["passphrase"]
+            or network.get("observedProtocol") != 30
+            or record.get("endpointHost") != _PROTOCOL30_TESTNET["host"]
+        ):
+            raise PackError(f"Protocol 30 record has the wrong Testnet identity: {record_path}")
+        checked_at = validate._parse_instant(record["checkedAt"])
+        if not (-validate.CLOCK_SKEW_TOLERANCE <= now - checked_at <= _PROTOCOL30_LIVE_FRESHNESS):
+            raise PackError(f"Protocol 30 live evidence is outside the 30-day freshness window: {record_path}")
+
+        fixture = next(f for f in registry["fixtures"] if f["id"] == fixture_id)
+        fixture_path = pack / fixture["path"]
+        try:
+            body = tomllib.loads(fixture_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+            raise PackError(f"Protocol 30 fixture cannot be parsed: {fixture_path}: {exc}") from None
+        # First release deliberately supports just the independently tested
+        # getVersionInfo identity assertion. Extend only with specific evidence.
+        if (
+            fixture["surface"] != "rpc"
+            or body.get("method") != "get-version-info"
+            or body.get("assert") != [
+                {"kind": "field-equals", "field": "protocolVersion", "value": 30}
+            ]
+        ):
+            raise PackError(f"Protocol 30 release gate does not support this fixture: {fixture_path}")
+
+        expected_ref = "protocol-30/evidence/live/testnet/captures/get-version-info.json"
+        if record.get("evidenceRef") != expected_ref:
+            raise PackError(f"Protocol 30 record must link the exact raw capture: {record_path}")
+        capture_dir = pack / "evidence" / "live" / "testnet" / "captures"
+        version_path = capture_dir / "get-version-info.json"
+        network_path = capture_dir / "get-network.json"
+        # Check the resolved parent too: a symlinked capture directory can
+        # otherwise escape the fixture pack while the individual files look normal.
+        if capture_dir.resolve() != pack.resolve() / "evidence/live/testnet/captures":
+            raise PackError(f"Protocol 30 capture directory resolves outside the pack: {capture_dir}")
+        for item in (version_path, network_path):
+            if item.is_symlink() or not item.is_file():
+                raise PackError(f"Protocol 30 required capture is missing or a symlink: {item}")
+        version_capture = _read_json(version_path, "Protocol 30 version capture")
+        network_capture = _read_json(network_path, "Protocol 30 network capture")
+
+        def check_rpc_capture(capture: dict, method: str, filename: Path) -> dict:
+            request = capture.get("request")
+            response = capture.get("response")
+            result = response.get("result") if isinstance(response, dict) else None
+            if (
+                capture.get("endpointHost") != _PROTOCOL30_TESTNET["host"]
+                or not isinstance(request, dict)
+                or not isinstance(response, dict)
+                or not isinstance(result, dict)
+                or request.get("jsonrpc") != "2.0"
+                or response.get("jsonrpc") != "2.0"
+                or type(request.get("id")) not in (int, str)
+                or (isinstance(request.get("id"), str) and not request["id"])
+                or type(response.get("id")) is not type(request.get("id"))
+                or request.get("id") != response.get("id")
+                or request.get("method") != method
+                or "error" in response
+                or result.get("protocolVersion") != 30
+            ):
+                raise PackError(f"Protocol 30 capture has incorrect RPC identity: {filename}")
+            return result
+
+        check_rpc_capture(version_capture, "getVersionInfo", version_path)
+        network_result = check_rpc_capture(network_capture, "getNetwork", network_path)
+        if network_result.get("passphrase") != _PROTOCOL30_TESTNET["passphrase"]:
+            raise PackError(f"Protocol 30 getNetwork passphrase mismatch: {network_path}")
+        if version_capture.get("capturedAt") != record["checkedAt"]:
+            raise PackError(f"Protocol 30 raw version capture timestamp mismatch: {version_path}")
+        network_timestamp = network_capture.get("capturedAt")
+        if not isinstance(network_timestamp, str):
+            raise PackError(f"Protocol 30 network capture has no UTC timestamp: {network_path}")
+        if not network_timestamp.endswith("Z"):
+            raise PackError(f"Protocol 30 network timestamp must be UTC: {network_path}")
+        try:
+            network_time = validate._parse_instant(network_timestamp)
+        except (TypeError, ValueError) as exc:
+            raise PackError(f"Protocol 30 network timestamp is invalid: {network_path}: {exc}") from None
+        if (
+            abs(network_time - checked_at) > _PROTOCOL30_CAPTURE_WINDOW
+            or now - network_time > _PROTOCOL30_LIVE_FRESHNESS
+            or network_time - now > validate.CLOCK_SKEW_TOLERANCE
+        ):
+            raise PackError(f"Protocol 30 Testnet identity and version captures are not contemporaneous: {network_path}")
+
+    missing = expected_ids - observed_ids
+    if missing:
+        raise PackError(f"Protocol 30 missing live evidence for {', '.join(sorted(missing))}")
 
 
 def _tar_info(name: str, *, directory: bool, size: int = 0) -> tarfile.TarInfo:
