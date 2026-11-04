@@ -25,5 +25,6 @@ network passphrase, and refuses mismatched results. A captured version
 number is evidence only for that endpoint and timestamp. It is not
 proof that Protocol 30's XDR and other features work.
 
-Do not change or rewrite Protocol 29 evidence. A separate later PR will
-update the network matrix and recurring Action integration.
+Do not change or rewrite Protocol 29 evidence. The upstream version
+matrix includes Protocol 30; a separate Action PR will update the
+Testnet/Futurenet workflow and fixture pins.

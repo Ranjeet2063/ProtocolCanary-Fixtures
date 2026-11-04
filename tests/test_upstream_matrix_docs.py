@@ -106,7 +106,7 @@ class UpstreamMatrixDocsTests(unittest.TestCase):
         cls.sections = parse_sections(cls.text)
         cls.matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
 
-    def test_the_page_documents_protocols_28_and_29_on_both_networks(self) -> None:
+    def test_the_page_documents_protocols_28_29_and_30(self) -> None:
         self.assertEqual(
             set(self.sections),
             {("28", "Testnet"), ("28", "Mainnet"), ("29", "Testnet"), ("29", "Mainnet"), ("30", "Testnet")},

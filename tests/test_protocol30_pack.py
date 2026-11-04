@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import mock_rpc  # noqa: E402
+
 from tools.evidence import capture_live  # noqa: E402
 
 PACK30 = ROOT / "protocol-30"
