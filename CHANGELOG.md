@@ -12,6 +12,11 @@ discussion and diff. New entries must include that link; see
 
 ### Added
 
+- Add deterministic offline Protocol 30 XDR fixtures for CAP-84 muxed
+  contract addresses and CAP-88 millisecond-resolution `StellarValue` arms.
+  The independent Python codec tests assert the decoded fields and timestamp
+  relationship; structural evidence remains separate from live Testnet RPC
+  identity evidence. [PR #497](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/497).
 - Add a verified Protocol 30 Testnet-only fixture release path with fail-closed capture checks,
   scoped tags, security tests and release documentation. No Protocol 30 Futurenet
   or Mainnet claim. [PR #489](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/489).

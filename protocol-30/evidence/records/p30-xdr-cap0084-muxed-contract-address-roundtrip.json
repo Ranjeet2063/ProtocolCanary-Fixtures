@@ -1,0 +1,13 @@
+{
+  "verificationVersion": 1,
+  "fixtureId": "p30-xdr-cap0084-muxed-contract-address-roundtrip",
+  "fixtureSha256": "73cd51ddcfb643bf537f71b69994cda26fced3da2fea66f4d49f8324744f3a3e",
+  "method": "structural",
+  "checkedAt": "2026-11-05T14:21:06Z",
+  "verifier": {
+    "name": "protocolcanary-fixtures-validate",
+    "version": "9feb1a85f64cd43201685fe233bf9ef15a38a752"
+  },
+  "outcome": "matched",
+  "evidenceRef": null
+}

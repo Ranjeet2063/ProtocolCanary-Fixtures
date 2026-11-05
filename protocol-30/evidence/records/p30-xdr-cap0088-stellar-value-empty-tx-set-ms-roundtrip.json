@@ -1,0 +1,13 @@
+{
+  "verificationVersion": 1,
+  "fixtureId": "p30-xdr-cap0088-stellar-value-empty-tx-set-ms-roundtrip",
+  "fixtureSha256": "571962ee8484e13b6e9abbcfc5b197740197b32ffcc75f01365d957c97fc60c6",
+  "method": "structural",
+  "checkedAt": "2026-11-05T14:21:06Z",
+  "verifier": {
+    "name": "protocolcanary-fixtures-validate",
+    "version": "9feb1a85f64cd43201685fe233bf9ef15a38a752"
+  },
+  "outcome": "matched",
+  "evidenceRef": null
+}

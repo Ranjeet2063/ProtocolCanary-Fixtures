@@ -44,6 +44,12 @@ class Protocol30ReleaseEvidenceTests(unittest.TestCase):
     def test_valid_testnet_evidence_passes(self):
         pack.check_verified_evidence(self.pack_dir)
 
+    def test_missing_offline_xdr_structural_record_fails(self):
+        records = self.pack_dir / "evidence" / "records"
+        (records / "p30-xdr-cap0084-muxed-contract-address-roundtrip.json").unlink()
+        with self.assertRaisesRegex(pack.PackError, "missing .*cap0084-muxed-contract-address"):
+            pack.check_verified_evidence(self.pack_dir)
+
     def test_stale_capture_fails(self):
         self.mutate(self.record, lambda r: r.update(checkedAt="2020-01-01T00:00:00Z"))
         self.assert_rejected("freshness")

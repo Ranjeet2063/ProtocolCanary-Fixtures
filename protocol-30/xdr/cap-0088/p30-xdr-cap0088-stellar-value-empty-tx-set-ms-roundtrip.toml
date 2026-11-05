@@ -1,0 +1,33 @@
+# Protocol 30 structural StellarValue vector for CAP-88's
+# STELLAR_VALUE_EMPTY_TX_SET_MS arm (discriminant 4).
+#
+# The official stellar-xdr 30.0.0 Rust types encoded a typed StellarValue
+# with top-level tx_set_hash = Hash([0; 32]), close_time = 1_700_000_123,
+# close_time_ms = 1_700_000_123_456, no upgrades, and the EmptyTxSetMs arm.
+# Its arm fields are tx_set_hash = Hash([0x33; 32]),
+# previous_ledger_hash = Hash([0x44; 32]), and previous_ledger_version = 30.
+# CAP-88 requires close_time == close_time_ms / 1000; the independent Python
+# decoder test asserts these fields and that relationship. This vector does
+# not assert that its synthetic hashes describe a real transaction set or
+# ledger.
+#
+# The node id and 64-byte signature are deterministic sentinels. They are not
+# cryptographically verified and do not represent a valid consensus vote.
+# This fixture proves XDR structure only, not consensus validity or complete
+# Protocol 30 compatibility.
+#
+# CAP-88: https://github.com/stellar/stellar-protocol/blob/1ae39233055a0fb94bb737650a39ede8d77d924c/core/cap-0088.md
+# Generated XDR types at stellar/rs-stellar-xdr tag v30.0.0:
+# https://github.com/stellar/rs-stellar-xdr/blob/v30.0.0/src/generated/stellar_value_ext.rs
+# https://raw.githubusercontent.com/stellar/rs-stellar-xdr/v30.0.0/src/generated/stellar_value_type.rs
+
+id = "p30-xdr-cap0088-stellar-value-empty-tx-set-ms-roundtrip"
+protocol = 30
+surface = "xdr"
+category = "cap-0088"
+description = "A StellarValue using CAP-88 STELLAR_VALUE_EMPTY_TX_SET_MS round-trips byte-for-byte"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/1ae39233055a0fb94bb737650a39ede8d77d924c/core/cap-0088.md"
+
+type = "StellarValue"
+kind = "roundtrip"
+value_base64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZVPxewAAAAAAAAAEAAABi8/nSkAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0REREREREREREREREREREREREREREREREREREREREREAAAAHgAAAABmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZgAAAEBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"

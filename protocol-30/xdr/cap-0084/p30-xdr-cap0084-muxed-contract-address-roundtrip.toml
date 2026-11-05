@@ -1,0 +1,35 @@
+# Protocol 30 structural ScVal vector for CAP-84's muxed contract address.
+#
+# CAP-84 defines SC_ADDRESS_TYPE_MUXED_CONTRACT = 5 and MuxedContract as
+# { uint64 id; ContractID contractId; }. The generated XDR types are pinned
+# to stellar/rs-stellar-xdr tag v30.0.0:
+# https://github.com/stellar/rs-stellar-xdr/blob/v30.0.0/src/generated/sc_address.rs
+# https://github.com/stellar/rs-stellar-xdr/blob/v30.0.0/src/generated/muxed_contract.rs
+#
+# The typed source value was encoded by the official stellar-xdr 30.0.0 Rust
+# crate: ScVal::Address(ScAddress::MuxedContract(MuxedContract {
+#   id: 0x0102030405060708,
+#   contract_id: ContractId(Hash([0x22; 32])),
+# })). The field values below are also asserted by the separate standard-
+# library Python ScVal decoder in tests/test_protocol30_pack.py. This is not
+# a Rust-codec round trip used as its own conformance evidence.
+#
+# All bytes are deterministic synthetic sentinels, not a captured or deployed
+# contract address. This vector proves XDR layout only, not host behavior,
+# strkey validity, contract existence, or complete Protocol 30 compatibility.
+#
+# CAP-84: https://github.com/stellar/stellar-protocol/blob/1ae39233055a0fb94bb737650a39ede8d77d924c/core/cap-0084.md
+# Generated XDR types:
+# https://github.com/stellar/rs-stellar-xdr/blob/v30.0.0/src/generated/sc_address.rs
+# https://github.com/stellar/rs-stellar-xdr/blob/v30.0.0/src/generated/muxed_contract.rs
+
+id = "p30-xdr-cap0084-muxed-contract-address-roundtrip"
+protocol = 30
+surface = "xdr"
+category = "cap-0084"
+description = "A ScVal containing a CAP-84 muxed contract address round-trips byte-for-byte"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/1ae39233055a0fb94bb737650a39ede8d77d924c/core/cap-0084.md"
+
+type = "ScVal"
+kind = "roundtrip"
+value_base64 = "AAAAEgAAAAUBAgMEBQYHCCIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi"
