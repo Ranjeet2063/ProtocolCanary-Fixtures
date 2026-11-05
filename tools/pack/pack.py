@@ -430,21 +430,76 @@ def _check_protocol30_live_evidence(
     records: list[tuple[Path, dict]],
     now: datetime.datetime,
 ) -> None:
-    """Require fresh, coherent, Testnet-only RPC evidence for every P30 fixture.
+    """Require structural records for offline XDR and live evidence for P30 RPC.
 
     This validates stored live-capture records; it is not cryptographic proof
-    of an RPC response or of compatibility beyond declared assertions.
+    of an RPC response or of compatibility beyond declared assertions. XDR
+    fixtures have structural CF-04 records, which do not satisfy the live
+    Testnet identity gate.
     """
-    if len(records) != len(fixture_hashes):
-        raise PackError("Protocol 30 release requires exactly one Testnet live record per fixture")
+    fixtures_by_id = {fixture["id"]: fixture for fixture in registry["fixtures"]}
+    expected_live_ids: set[str] = set()
+    expected_structural_ids: set[str] = set()
+    for fixture in registry["fixtures"]:
+        fixture_path = pack / fixture["path"]
+        try:
+            body = tomllib.loads(fixture_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+            raise PackError(f"Protocol 30 fixture cannot be parsed: {fixture_path}: {exc}") from None
+        if fixture["surface"] == "xdr":
+            expected_structural_ids.add(fixture["id"])
+            continue
+        if (
+            fixture["surface"] != "rpc"
+            or body.get("method") != "get-version-info"
+            or body.get("assert") != [
+                {"kind": "field-equals", "field": "protocolVersion", "value": 30}
+            ]
+        ):
+            raise PackError(f"Protocol 30 release gate does not support this fixture: {fixture_path}")
+        expected_live_ids.add(fixture["id"])
 
-    expected_ids = set(fixture_hashes)
-    observed_ids: set[str] = set()
+    observed_live_ids: set[str] = set()
+    observed_structural_ids: set[str] = set()
+    live_records: list[tuple[Path, dict]] = []
     for record_path, record in records:
         fixture_id = record["fixtureId"]
-        if fixture_id not in expected_ids or fixture_id in observed_ids:
+        fixture = fixtures_by_id.get(fixture_id)
+        if fixture is None:
+            raise PackError(f"Protocol 30 unexpected evidence record: {record_path}")
+        if fixture["surface"] == "xdr":
+            if record["method"] != "structural":
+                raise PackError(f"Protocol 30 XDR fixture requires structural evidence: {record_path}")
+            if record_path.is_symlink() or record_path.relative_to(pack / "evidence").parts != (
+                "records", f"{fixture_id}.json"
+            ):
+                raise PackError(f"Protocol 30 structural record must be under evidence/records/: {record_path}")
+            if fixture_id in observed_structural_ids:
+                raise PackError(f"Protocol 30 duplicate structural record: {record_path}")
+            observed_structural_ids.add(fixture_id)
+            continue
+        if fixture["surface"] != "rpc" or record["method"] != "live-read-only":
+            raise PackError(f"Protocol 30 RPC identity fixture requires live-read-only evidence: {record_path}")
+        if fixture_id not in expected_live_ids or fixture_id in observed_live_ids:
             raise PackError(f"Protocol 30 unexpected or duplicate live record: {record_path}")
-        observed_ids.add(fixture_id)
+        observed_live_ids.add(fixture_id)
+        live_records.append((record_path, record))
+
+    missing_structural = expected_structural_ids - observed_structural_ids
+    if missing_structural:
+        raise PackError(
+            "Protocol 30 release requires structural records for offline XDR fixtures; missing "
+            + ", ".join(sorted(missing_structural))
+        )
+    if observed_structural_ids - expected_structural_ids:
+        raise PackError("Protocol 30 has unexpected structural evidence")
+    if observed_live_ids != expected_live_ids:
+        missing_live = expected_live_ids - observed_live_ids
+        raise PackError(f"Protocol 30 missing live evidence for {', '.join(sorted(missing_live))}")
+
+    expected_ids = expected_live_ids
+    for record_path, record in live_records:
+        fixture_id = record["fixtureId"]
         if record_path.is_symlink() or record_path.relative_to(pack / "evidence").parts[:3] != (
             "live", "testnet", "records"
         ):
@@ -466,23 +521,6 @@ def _check_protocol30_live_evidence(
         checked_at = validate._parse_instant(record["checkedAt"])
         if not (-validate.CLOCK_SKEW_TOLERANCE <= now - checked_at <= _PROTOCOL30_LIVE_FRESHNESS):
             raise PackError(f"Protocol 30 live evidence is outside the 30-day freshness window: {record_path}")
-
-        fixture = next(f for f in registry["fixtures"] if f["id"] == fixture_id)
-        fixture_path = pack / fixture["path"]
-        try:
-            body = tomllib.loads(fixture_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
-            raise PackError(f"Protocol 30 fixture cannot be parsed: {fixture_path}: {exc}") from None
-        # First release deliberately supports just the independently tested
-        # getVersionInfo identity assertion. Extend only with specific evidence.
-        if (
-            fixture["surface"] != "rpc"
-            or body.get("method") != "get-version-info"
-            or body.get("assert") != [
-                {"kind": "field-equals", "field": "protocolVersion", "value": 30}
-            ]
-        ):
-            raise PackError(f"Protocol 30 release gate does not support this fixture: {fixture_path}")
 
         expected_ref = "protocol-30/evidence/live/testnet/captures/get-version-info.json"
         if record.get("evidenceRef") != expected_ref:
@@ -544,7 +582,7 @@ def _check_protocol30_live_evidence(
         ):
             raise PackError(f"Protocol 30 Testnet identity and version captures are not contemporaneous: {network_path}")
 
-    missing = expected_ids - observed_ids
+    missing = expected_ids - observed_live_ids
     if missing:
         raise PackError(f"Protocol 30 missing live evidence for {', '.join(sorted(missing))}")
 

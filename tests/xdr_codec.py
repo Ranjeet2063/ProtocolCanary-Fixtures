@@ -72,6 +72,12 @@ definitions in ``stellar/stellar-xdr`` at tag ``v28.0`` (commit
   - ``struct FeeBumpTransactionEnvelope`` (lines 993-999)
   - ``union TransactionEnvelope switch (EnvelopeType type)`` (lines 1002-1010)
 
+The two millisecond-resolution ``StellarValue`` arms added by CAP-88 follow
+the Protocol 30 definitions generated in ``stellar/rs-stellar-xdr`` at tag
+``v30.0.0``. This codec checks XDR structure; CAP-88's cross-field
+``close_time == close_time_ms / 1000`` rule is asserted by the Protocol 30
+fixture tests, not treated as a generic XDR decoding rule.
+
 Strict RFC 4506 rules implemented:
 - All integer and length values are 4-byte or 8-byte big-endian.
 - Variable-length opaque and string data must be padded to a 4-byte boundary
@@ -131,6 +137,8 @@ class LedgerCloseValueSignature:
 STELLAR_VALUE_BASIC = 0
 STELLAR_VALUE_SIGNED = 1
 STELLAR_VALUE_EMPTY_TX_SET = 2
+STELLAR_VALUE_SIGNED_MS = 3
+STELLAR_VALUE_EMPTY_TX_SET_MS = 4
 
 
 @dataclass(frozen=True)
@@ -142,10 +150,27 @@ class EmptyTxSetProposedValue:
 
 
 @dataclass(frozen=True)
+class StellarValueSignedMsValue:
+    close_time_ms: int  # TimePointMs (uint64)
+    lc_value_signature: LedgerCloseValueSignature
+
+
+@dataclass(frozen=True)
+class StellarValueProposedMsValue:
+    close_time_ms: int  # TimePointMs (uint64)
+    tx_set_hash: bytes  # 32 bytes
+    previous_ledger_hash: bytes  # 32 bytes
+    previous_ledger_version: int  # uint32
+    lc_value_signature: LedgerCloseValueSignature
+
+
+@dataclass(frozen=True)
 class StellarValueExt:
     ext_type: int  # StellarValueType
     signature: LedgerCloseValueSignature | None = None  # SIGNED
     proposed_value: EmptyTxSetProposedValue | None = None  # EMPTY_TX_SET
+    signed_ms_value: StellarValueSignedMsValue | None = None  # SIGNED_MS
+    proposed_ms_value: StellarValueProposedMsValue | None = None  # EMPTY_TX_SET_MS
 
 
 @dataclass(frozen=True)
@@ -1393,6 +1418,28 @@ def decode_stellar_value(raw: bytes) -> StellarValue:
             lc_value_signature=lc_sig,
         )
         ext = StellarValueExt(ext_type=ext_type, proposed_value=proposed)
+    elif ext_type == STELLAR_VALUE_SIGNED_MS:
+        close_time_ms = reader.read_uint64()
+        sig = _decode_lc_value_signature(reader)
+        signed_ms = StellarValueSignedMsValue(
+            close_time_ms=close_time_ms,
+            lc_value_signature=sig,
+        )
+        ext = StellarValueExt(ext_type=ext_type, signed_ms_value=signed_ms)
+    elif ext_type == STELLAR_VALUE_EMPTY_TX_SET_MS:
+        close_time_ms = reader.read_uint64()
+        proposed_tx_set_hash = reader.read_fixed_opaque(32)
+        prev_ledger_hash = reader.read_fixed_opaque(32)
+        prev_ledger_ver = reader.read_uint32()
+        lc_sig = _decode_lc_value_signature(reader)
+        proposed_ms = StellarValueProposedMsValue(
+            close_time_ms=close_time_ms,
+            tx_set_hash=proposed_tx_set_hash,
+            previous_ledger_hash=prev_ledger_hash,
+            previous_ledger_version=prev_ledger_ver,
+            lc_value_signature=lc_sig,
+        )
+        ext = StellarValueExt(ext_type=ext_type, proposed_ms_value=proposed_ms)
     else:
         raise XdrCodecError(f"unknown StellarValueType discriminant: {ext_type}")
 
@@ -1437,6 +1484,39 @@ def encode_stellar_value(val: StellarValue) -> bytes:
         writer.write_fixed_opaque(pv.previous_ledger_hash)
         writer.write_uint32(pv.previous_ledger_version)
         _encode_lc_value_signature(writer, pv.lc_value_signature)
+    elif val.ext.ext_type == STELLAR_VALUE_SIGNED_MS:
+        signed_ms = val.ext.signed_ms_value
+        if signed_ms is None:
+            raise XdrCodecError("signed_ms_value required for STELLAR_VALUE_SIGNED_MS")
+        if (
+            not isinstance(signed_ms.close_time_ms, int)
+            or isinstance(signed_ms.close_time_ms, bool)
+            or not 0 <= signed_ms.close_time_ms < (1 << 64)
+        ):
+            raise XdrCodecError("close_time_ms must be an unsigned 64-bit integer")
+        writer.write_uint64(signed_ms.close_time_ms)
+        _encode_lc_value_signature(writer, signed_ms.lc_value_signature)
+    elif val.ext.ext_type == STELLAR_VALUE_EMPTY_TX_SET_MS:
+        proposed_ms = val.ext.proposed_ms_value
+        if proposed_ms is None:
+            raise XdrCodecError(
+                "proposed_ms_value required for STELLAR_VALUE_EMPTY_TX_SET_MS"
+            )
+        if (
+            not isinstance(proposed_ms.close_time_ms, int)
+            or isinstance(proposed_ms.close_time_ms, bool)
+            or not 0 <= proposed_ms.close_time_ms < (1 << 64)
+        ):
+            raise XdrCodecError("close_time_ms must be an unsigned 64-bit integer")
+        writer.write_uint64(proposed_ms.close_time_ms)
+        if len(proposed_ms.tx_set_hash) != 32:
+            raise XdrCodecError("proposed txSetHash must be 32 bytes")
+        writer.write_fixed_opaque(proposed_ms.tx_set_hash)
+        if len(proposed_ms.previous_ledger_hash) != 32:
+            raise XdrCodecError("previousLedgerHash must be 32 bytes")
+        writer.write_fixed_opaque(proposed_ms.previous_ledger_hash)
+        writer.write_uint32(proposed_ms.previous_ledger_version)
+        _encode_lc_value_signature(writer, proposed_ms.lc_value_signature)
     else:
         raise XdrCodecError(f"unknown StellarValueType discriminant: {val.ext.ext_type}")
 
