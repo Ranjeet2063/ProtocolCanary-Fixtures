@@ -409,6 +409,14 @@ class CommandLineTests(ValidateRegistryTestCase):
 class RepositoryPacksTests(ValidateRegistryTestCase):
     """The repository's own packs, whatever state the checkout is in."""
 
+    def test_default_run_succeeds_when_no_protocol_packs_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(vr, "REPO_ROOT", Path(temp)):
+                code, out, err = self.run_tool()
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("OK: no protocol-* pack directories found", out)
+
     def test_default_run_checks_every_protocol_pack(self) -> None:
         code, out, err = self.run_tool()
         self.assertEqual(code, 0, err)

@@ -109,6 +109,36 @@ class ReleaseChangelogTests(unittest.TestCase):
 
         self.assertEqual(changelog.previous_tag(self.root, 28, "1.1.0"), "fixtures-p28-v1.0.0")
 
+    def test_other_protocol_release_tags_are_ignored(self) -> None:
+        git(self.root, "tag", "fixtures-p29-v9.0.0")
+
+        self.assertEqual(changelog.previous_tag(self.root, 28, "1.1.0"), "fixtures-p28-v1.0.0")
+
+    def test_release_tags_newer_than_the_selected_version_are_ignored(self) -> None:
+        git(self.root, "tag", "fixtures-p28-v1.2.0")
+
+        self.assertEqual(changelog.previous_tag(self.root, 28, "1.1.0"), "fixtures-p28-v1.0.0")
+
+    def test_first_release_without_fragments_has_clear_output(self) -> None:
+        output = changelog.render_changelog(self.root, 30, "0.1.0")
+
+        self.assertIn("No changelog fragments are recorded for this pack yet.", output)
+
+    def test_first_release_rejects_invalid_fragment_names(self) -> None:
+        git(self.root, "tag", "--delete", "fixtures-p28-v1.0.0")
+        self.write_fragment("changelog.d/protocol-28/BAD.md", "- Test-only note.\n")
+
+        with self.assertRaisesRegex(changelog.ChangelogError, "invalid changelog fragment path"):
+            changelog.render_changelog(self.root, 28, "0.1.0")
+
+    def test_first_release_rejects_non_file_fragments(self) -> None:
+        git(self.root, "tag", "--delete", "fixtures-p28-v1.0.0")
+        directory = self.root / "changelog.d" / "protocol-28" / "directory.md"
+        directory.mkdir(parents=True)
+
+        with self.assertRaisesRegex(changelog.ChangelogError, "regular file, not a symlink"):
+            changelog.render_changelog(self.root, 28, "0.1.0")
+
     def test_git_failure_is_reported(self) -> None:
         with self.assertRaisesRegex(changelog.ChangelogError, "not-a-git-command"):
             changelog.run_git(self.root, "not-a-git-command")
