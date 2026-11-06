@@ -292,7 +292,12 @@ See [`docs/run-records.md`](run-records.md) for the run-record format and the ru
 
 ## `tools/badge/badge.py`
 
-Generates or checks the dynamic fixture-count shield badge in `README.md`.
+Legacy utility for the generated fixture-count badge. The root `README.md` no
+longer publishes that badge, and fixture contributions, validation CI and
+release publishing do not use this tool. The current `README.md` has no badge
+markers, so write and `--check` modes exit with status 1 without modifying the
+file. Keep this section as the CLI reference for the retained utility, not as
+contributor instructions.
 
 ### Synopsis
 
@@ -303,7 +308,7 @@ python3 tools/badge/badge.py [-h] [--check]
 ### Options
 
 - `-h`, `--help`: show this help message and exit without modifying `README.md`
-- `--check`: verify that the badge count in `README.md` is current without modifying the file; exits non-zero if stale.
+- `--check`: verify that the badge count in `README.md` is current without modifying the file; exits non-zero if the badge is stale or its markers are missing.
 
 Any other argument is a command-line error: usage is printed to stderr and the tool exits 2 without touching `README.md` (issue #392).
 
@@ -312,7 +317,7 @@ Any other argument is a command-line error: usage is printed to stderr and the t
 | Exit Code | Meaning |
 |---|---|
 | `0` | Success: badge updated or already current, or `--help` requested. |
-| `1` | Under `--check`: badge in `README.md` is stale. Also returned if `README.md` cannot be read or markers are missing. |
+| `1` | `README.md` cannot be read, its badge markers are missing, or `--check` finds a stale badge. |
 | `2` | Command-line syntax error: unrecognized arguments (usage printed to stderr; `README.md` is not modified). |
 
 ### Output Streams
@@ -460,8 +465,8 @@ python3 tools/validate/validate_registry.py [PACK ...] [--registry PATH]
 
 The following behaviors are recorded as observations of current implementations, not normative decisions. Changing any of them is out of scope for documentation issue #351 and belongs in separate issues should maintainers choose to open them:
 
-1. **`tools/badge/badge.py` argument handling**:
-   `badge.py` does not use `argparse`. It checks only for the substring `"--check"` in `sys.argv`. Any other arguments, including `--help`, unknown flags, or nonexistent paths, are silently ignored and the script proceeds with exit code 0.
+1. **Legacy `tools/badge/badge.py` cannot update the current root README**:
+   The script uses `argparse`, but the current root `README.md` has no fixture-badge marker pair. A valid write or `--check` invocation therefore exits 1 before writing. `--help` exits 0 and unknown arguments exit 2. This legacy utility is not part of fixture contribution or CI workflows.
 2. **`tools/validate/schema_sync.py --help`**:
    `schema_sync.py` does not parse `--help`. If any arguments are provided (`if argv:`), it immediately prints a one-line usage to stderr and exits with status 2.
 3. **Nonexistent input path exit codes**:
@@ -472,4 +477,4 @@ The following behaviors are recorded as observations of current implementations,
    - `tools/pack/verify_archive.py`: exits `2` (handled via archive error).
    - `tools/release/manifest.py`: exits `2` (handled via archive error).
    - `tools/validate/validate_registry.py`: exits `2` (handled as unusable input).
-   - `tools/badge/badge.py`: exits `0` (argument ignored).
+   - `tools/badge/badge.py`: accepts no path argument; a positional path is rejected by `argparse` with exit code `2`.

@@ -214,10 +214,11 @@ jobs:
         run: python3 tools/validate/check_source_links.py --summary-file "$GITHUB_STEP_SUMMARY"
 
   changelog:
-    # A CHANGELOG entry under ## [Unreleased] is required for pull requests that
-    # modify fixtures, schemas, or tools (rule [F-055]). Exempt PRs can use
-    # the 'no-changelog' label. This check runs on pull requests only, never on
-    # pushes to main or scheduled runs.
+    # A new, non-empty fragment under changelog.d/common/ or
+    # changelog.d/protocol-NN/ is required when a PR changes governed fixture,
+    # schema, or tool paths (rule [F-055]). The historical CHANGELOG.md does not
+    # satisfy the check. Exempt PRs can use the 'no-changelog' label. This check
+    # runs on pull requests only, never on pushes to main or scheduled runs.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # Bounded so a stuck step cannot hold a runner for the 360-minute default: a git diff and a text check.
@@ -231,7 +232,7 @@ jobs:
         with:
           python-version: "3.11.16"
 
-      - name: Validate CHANGELOG entry
+      - name: Validate changelog fragment
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: >-

@@ -3,7 +3,8 @@
 # Targets:
 #   make validate     - structural fixture validation (tools/validate/validate.py)
 #   make test         - repository test suite (unittest discover tests)
-#   make check-changelog - verify CHANGELOG entry for changed files (tools/validate/check_changelog.py)
+#   make check-changelog - require a new changelog fragment for governed changes
+#                         (tools/validate/check_changelog.py)
 #   make check-links  - check fixture source reference links (tools/validate/check_source_links.py)
 #   make coverage     - test suite under branch coverage of tools/, failing below
 #                       .coveragerc's fail_under (what CI's coverage job runs);

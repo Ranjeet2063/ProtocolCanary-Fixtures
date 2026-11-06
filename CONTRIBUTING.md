@@ -527,7 +527,7 @@ For convenience, a `Makefile` wraps the commands CI runs:
 
 - `make validate` — structural fixture validation.
 - `make test` — the repository test suite.
-- `make check-changelog` — verify CHANGELOG entry for changed files.
+- `make check-changelog` — verify a new changelog fragment is present for governed changes.
 - `make check-links` — check fixture source reference links across all packs.
 - `make coverage` — the test suite under branch coverage of `tools/`, failing
   below `.coveragerc`'s threshold. Needs the development-only dependency
