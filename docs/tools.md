@@ -155,7 +155,7 @@ python3 tools/evidence/record_structural.py PACK [--output-dir DIR]
 
 ## `tools/registry/generate.py`
 
-Generates the fixture registry (`registry-v1.json`) for one protocol pack per CF-02. Reads pack contents, validates against schema, and writes or prints the registry.
+Generates the canonical fixture registry (`registry-v1.json`) for one protocol pack per CF-02. Reads pack contents, validates against the unchanged schema, and prints the registry or writes it outside the pack. A source checkout does not contain a committed registry.
 
 ### Synopsis
 
@@ -169,21 +169,26 @@ python3 tools/registry/generate.py [--allow-empty] [--protocol N]
 - `-h`, `--help`: show this help message and exit
 - `--allow-empty`: allow generating an empty baseline registry (requires `--protocol N`)
 - `--protocol N`: protocol number for the pack (required with `--allow-empty`)
-- `--output PATH`: write the registry here (default: PACK/registry-v1.json)
-- `--stdout`: print the registry instead of writing a file
+- `--output PATH`: write the registry to a path outside the pack
+- `--stdout`: print the registry instead of writing a file; this is the default
 
 ### Exit Codes
 
 | Exit Code | Meaning |
 |---|---|
-| `0` | Success: registry generated and successfully validated against `schemas/registry-v1.schema.json`. |
-| `1` | Pack error: pack path is not a directory, contains invalid fixtures, violates extraction limits, empty pack without `--allow-empty`, or `--allow-empty` without a valid `--protocol`. |
+| `0` | Success: canonical registry generated and validated against `schemas/registry-v1.schema.json`. |
+| `1` | Pack error: pack path is not a directory, contains invalid fixtures, violates extraction limits, empty pack without `--allow-empty`, an invalid `--protocol`, or an output path inside the pack. |
 | `2` | Command-line syntax error: missing `pack` argument, unknown options, or mutually exclusive options (`--output` and `--stdout` together). |
 
 ### Output Streams
 
-- **stdout**: Serialized registry JSON document when `--stdout` is specified; help text when `--help` is invoked.
+- **stdout**: Serialized registry JSON document when neither output option is specified or when `--stdout` is specified; help text when `--help` is invoked.
 - **stderr**: Error messages and validation diagnostics.
+
+For the CI check, `python3 tools/registry/check_all.py protocol-28 protocol-29 protocol-30`
+generates two independent external outputs for every populated pack, requires
+byte-identical output, and validates the generated registry against the pack.
+All temporary outputs are removed at the end of the command.
 
 ---
 
@@ -287,7 +292,12 @@ See [`docs/run-records.md`](run-records.md) for the run-record format and the ru
 
 ## `tools/badge/badge.py`
 
-Generates or checks the dynamic fixture-count shield badge in `README.md`.
+Legacy utility for the generated fixture-count badge. The root `README.md` no
+longer publishes that badge, and fixture contributions, validation CI and
+release publishing do not use this tool. The current `README.md` has no badge
+markers, so write and `--check` modes exit with status 1 without modifying the
+file. Keep this section as the CLI reference for the retained utility, not as
+contributor instructions.
 
 ### Synopsis
 
@@ -298,7 +308,7 @@ python3 tools/badge/badge.py [-h] [--check]
 ### Options
 
 - `-h`, `--help`: show this help message and exit without modifying `README.md`
-- `--check`: verify that the badge count in `README.md` is current without modifying the file; exits non-zero if stale.
+- `--check`: verify that the badge count in `README.md` is current without modifying the file; exits non-zero if the badge is stale or its markers are missing.
 
 Any other argument is a command-line error: usage is printed to stderr and the tool exits 2 without touching `README.md` (issue #392).
 
@@ -307,7 +317,7 @@ Any other argument is a command-line error: usage is printed to stderr and the t
 | Exit Code | Meaning |
 |---|---|
 | `0` | Success: badge updated or already current, or `--help` requested. |
-| `1` | Under `--check`: badge in `README.md` is stale. Also returned if `README.md` cannot be read or markers are missing. |
+| `1` | `README.md` cannot be read, its badge markers are missing, or `--check` finds a stale badge. |
 | `2` | Command-line syntax error: unrecognized arguments (usage printed to stderr; `README.md` is not modified). |
 
 ### Output Streams
@@ -422,30 +432,31 @@ python3 tools/evidence/capture_live.py PACK [--output-dir DIR] [--endpoint HOST]
 
 ## `tools/validate/validate_registry.py`
 
-Cross-validates a protocol pack's fixtures against its committed `registry-v1.json`: every regular `*.toml` file on disk must be listed in the registry's `fixtures[]` array, every listed fixture and payload must exist as a regular file, and every recorded `sha256` must equal the hash of the bytes on disk (CF-02 section 6, rules 2 and 3; issue #273). The registry document itself is checked against `schemas/registry-v1.schema.json` first, so an unusable registry is input error, not a cross-validation result. Freshness (regenerating and comparing bytes) belongs to CI's `check-registry` step; this tool only compares what is committed against what is on disk. Reads files only; never executes anything.
+Cross-validates a protocol pack against a generated registry: every regular `*.toml` file on disk must be listed in `fixtures[]`, every fixture and payload must exist as a regular file, and every recorded SHA-256 must match the bytes on disk. The registry is checked against `schemas/registry-v1.schema.json`. With no registry path, the tool generates canonical registry JSON in an isolated temporary directory; `--registry PATH` validates an external generated registry. Reads files only and never executes anything.
 
 ### Synopsis
 
 ```bash
-python3 tools/validate/validate_registry.py [PACK ...]
+python3 tools/validate/validate_registry.py [PACK ...] [--registry PATH]
 ```
 
 ### Options
 
 - `-h`, `--help`: show this help message and exit
 - `PACK ...`: pack directories to check; when omitted, every `protocol-*` directory in the repository is checked
+- `--registry PATH`: external registry to check; may be used with exactly one `PACK`
 
 ### Exit Codes
 
 | Exit Code | Meaning |
 |---|---|
-| `0` | Every checked pack matches its registry (including a pack with no fixtures and no registry). |
-| `1` | Cross-validation problems: a fixture on disk is not listed in the registry, a listed fixture or payload is missing on disk, a sha256 differs, or a pack with fixtures has no `registry-v1.json`. |
+| `0` | Every checked pack matches its generated or supplied registry (fixtureless packs need no registry). |
+| `1` | Cross-validation problems: a fixture on disk is not listed in the registry, a listed fixture or payload is missing on disk, a SHA-256 differs, or the canonical registry cannot be generated from the pack. |
 | `2` | Unusable input: a pack path that is not a directory, a registry that cannot be read or is not a usable registry document (invalid JSON, schema violation, a path that escapes the pack), or a command-line error. |
 
 ### Output Streams
 
-- **stdout**: one `OK:` line per pack that matches its registry; help text when `--help` is invoked.
+- **stdout**: one `OK:` line per pack that matches its generated registry; help text when `--help` is invoked.
 - **stderr**: one `error:` line per problem, a final `FAILED: N problem(s)` summary, input errors, and usage on a command-line error.
 
 ---
@@ -454,8 +465,8 @@ python3 tools/validate/validate_registry.py [PACK ...]
 
 The following behaviors are recorded as observations of current implementations, not normative decisions. Changing any of them is out of scope for documentation issue #351 and belongs in separate issues should maintainers choose to open them:
 
-1. **`tools/badge/badge.py` argument handling**:
-   `badge.py` does not use `argparse`. It checks only for the substring `"--check"` in `sys.argv`. Any other arguments, including `--help`, unknown flags, or nonexistent paths, are silently ignored and the script proceeds with exit code 0.
+1. **Legacy `tools/badge/badge.py` cannot update the current root README**:
+   The script uses `argparse`, but the current root `README.md` has no fixture-badge marker pair. A valid write or `--check` invocation therefore exits 1 before writing. `--help` exits 0 and unknown arguments exit 2. This legacy utility is not part of fixture contribution or CI workflows.
 2. **`tools/validate/schema_sync.py --help`**:
    `schema_sync.py` does not parse `--help`. If any arguments are provided (`if argv:`), it immediately prints a one-line usage to stderr and exits with status 2.
 3. **Nonexistent input path exit codes**:
@@ -466,4 +477,4 @@ The following behaviors are recorded as observations of current implementations,
    - `tools/pack/verify_archive.py`: exits `2` (handled via archive error).
    - `tools/release/manifest.py`: exits `2` (handled via archive error).
    - `tools/validate/validate_registry.py`: exits `2` (handled as unusable input).
-   - `tools/badge/badge.py`: exits `0` (argument ignored).
+   - `tools/badge/badge.py`: accepts no path argument; a positional path is rejected by `argparse` with exit code `2`.

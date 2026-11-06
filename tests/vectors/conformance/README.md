@@ -84,6 +84,5 @@ python3 -m unittest tests/test_conformance_vectors.py
 
 The test runner reads this directory directly and invokes the same
 `validate_directory` implementation used by the command-line validator. The
-vectors are not in `protocol-*`, so they are not counted as consumable protocol
-fixtures or included in the fixture-count badge; the suite asserts both, and
-that no vector id collides with a shipped fixture id.
+vectors are not in `protocol-*`, so they are not consumed as protocol fixtures;
+the suite also asserts that no vector id collides with a shipped fixture id.

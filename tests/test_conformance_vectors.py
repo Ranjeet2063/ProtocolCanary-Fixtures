@@ -24,16 +24,6 @@ assert _spec.loader is not None
 sys.modules["conformance_validate"] = validate
 _spec.loader.exec_module(validate)
 
-# Loaded only for the isolation checks below: the corpus must stay invisible to
-# the badge and to the default validator roots, which both discover `protocol-*`.
-_badge_spec = importlib.util.spec_from_file_location(
-    "conformance_badge", REPO_ROOT / "tools" / "badge" / "badge.py"
-)
-badge = importlib.util.module_from_spec(_badge_spec)
-assert _badge_spec.loader is not None
-sys.modules["conformance_badge"] = badge
-_badge_spec.loader.exec_module(badge)
-
 SURFACES = {"xdr", "rpc", "soroban"}
 ERROR_CODE_PREFIXES = {
     "invalid-toml": "invalid TOML",
@@ -146,19 +136,12 @@ class CorpusIsolationTests(unittest.TestCase):
         self.assertEqual(on_disk, documented)
 
     def test_the_corpus_is_outside_every_scan_root(self) -> None:
-        # `tools/validate/validate.py` and `tools/badge/badge.py` both discover
-        # `protocol-*`. Were that widened, these files -- one of which is
-        # deliberately unparseable -- would be treated as consumable fixtures.
+        # The validator discovers `protocol-*` packs. Were that widened, these
+        # files, one of which is deliberately unparseable, would be treated as
+        # consumable fixtures.
         self.assertFalse(str(VECTORS_DIR.relative_to(REPO_ROOT)).startswith("protocol-"))
-        self.assertEqual(badge.pack_roots(REPO_ROOT), self.packs)
         for pack in self.packs:
             self.assertNotIn(pack, VECTORS_DIR.parents)
-
-    def test_the_fixture_count_badge_is_unaffected(self) -> None:
-        self.assertEqual(
-            badge.count_fixtures(REPO_ROOT),
-            sum(len(validate.find_fixture_files(pack)) for pack in self.packs),
-        )
 
     def test_vector_ids_do_not_collide_with_shipped_fixture_ids(self) -> None:
         # Ids must be unique across everything a loader could be pointed at, so

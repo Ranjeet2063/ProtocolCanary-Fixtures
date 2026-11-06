@@ -24,9 +24,8 @@ fixture to get it skipped.
 
 ## Why this directory, and not `protocol-28/soroban/`
 
-Both `tools/validate/validate.py` and `tools/badge/badge.py` scan only
-`protocol-*/` directories, so nothing here is parsed as a fixture, counted in
-README.md's badge, or fed to the loader. `python3 -m unittest discover tests`
+`tools/validate/validate.py` scans only `protocol-*/` directories, so nothing
+here is parsed as a fixture or fed to the loader. `python3 -m unittest discover tests`
 looks for `test*.py`, so these `.toml` files are not collected either.
 [`tests/test_sim_resource_fixtures.py`](../../test_sim_resource_fixtures.py) is
 what validates them — including a guard asserting that nothing under
@@ -74,8 +73,8 @@ response and so cannot go stale.
 Move these files into `protocol-28/soroban/`, merge the proposed fragment into
 `schemas/fixture-v1.schema.json`, extend `SOROBAN_EXPECT_KINDS` /
 `SOROBAN_EXPECT_FIELDS` in `tools/validate/validate.py`, refresh
-`EXPECTED_IDS_BY_SURFACE` in `tests/test_pack_protocol_28.py` and README.md's
-badge — but only once **all** of the following hold:
+`EXPECTED_IDS_BY_SURFACE` in `tests/test_pack_protocol_28.py` — but only once
+**all** of the following hold:
 
 1. `canary-soroban`'s `SorobanAssertion` has a resource-estimation variant in a
    **released** `Protocol-Canary` version (tracked upstream by

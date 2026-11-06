@@ -4,8 +4,8 @@ A pack README that carries a Markdown fixture table (header columns
 ``Fixture`` and ``Surface``, e.g. ``| Fixture | Surface | CAP | What it
 proves |``) is checked against the pack itself:
 
-1. every ``*.toml`` in the pack appears exactly once in the table, and
-   every table row links to an existing fixture file;
+1. every displayed row links to an existing fixture file; fixture tables are
+   allowed to be curated, non-exhaustive examples;
 2. the Surface column equals the fixture's ``surface`` field and the
    fixture's surface directory inside the pack;
 3. a CAP column value other than the dash (``—``) equals the fixture's
@@ -246,8 +246,8 @@ def check_pack(pack_dir: Path) -> PackReport:
             error(
                 rows[1],
                 target,
-                f"duplicate rows for the same fixture ({numbers}); "
-                "each fixture must appear exactly once",
+                    f"duplicate rows for the same fixture ({numbers}); "
+                "each displayed fixture should appear at most once",
             )
 
     for target, rows in linked.items():
@@ -309,13 +309,6 @@ def check_pack(pack_dir: Path) -> PackReport:
                     f"CAP {cap_cell!r} does not match the fixture's "
                     f"{cap_dir!r} directory",
                 )
-
-    for fixture in fixtures:
-        if fixture not in linked:
-            report.errors.append(
-                f"{report.name}: fixture {fixture!r} has no row in the "
-                "fixture table"
-            )
 
     return report
 
@@ -405,12 +398,13 @@ class SyntheticPackReadmeTests(unittest.TestCase):
                 + table_row("soroban/c.toml", "soroban", "—")
                 + "\n",
             )
-            report = self.check(check_pack(pack))
+            report = check_pack(pack)
+            self.assertEqual(report.errors, [])
             self.assertEqual(report.errors, [])
             self.assertEqual(report.row_count, 3)
             self.assertEqual(report.fixture_count, 3)
 
-    def test_missing_row_fails_naming_pack_and_fixture(self) -> None:
+    def test_missing_fixture_row_is_allowed_for_curated_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             pack = build_pack(
@@ -420,7 +414,9 @@ class SyntheticPackReadmeTests(unittest.TestCase):
                 FIXTURE_HEADER + table_row("xdr/a.toml", "xdr", "—") + "\n",
             )
             report = check_pack(pack)
-            self.assertFailed(report, "protocol-99", "xdr/b.toml", "has no row")
+            self.assertEqual(report.errors, [])
+            self.assertEqual(report.row_count, 1)
+            self.assertEqual(report.fixture_count, 2)
 
     def test_extra_row_for_non_fixture_file_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -600,7 +596,7 @@ class SyntheticPackReadmeTests(unittest.TestCase):
                 FIXTURE_HEADER
                 + "| [`xdr/a.toml`](./xdr/a.toml) | xdr | — | It proves X. |\n",
             )
-            report = self.check(check_pack(pack))
+            report = check_pack(pack)
             self.assertEqual(report.errors, [])
 
     def test_only_the_table_with_a_fixture_and_surface_header_is_used(self) -> None:
@@ -693,11 +689,29 @@ class RepositoryPackReadmeTests(unittest.TestCase):
         errors = [e for report in self.reports for e in report.errors]
         self.assertEqual(errors, [])
 
-    def test_protocol_28_table_covers_every_fixture_exactly_once(self) -> None:
+    def test_protocol_28_table_is_a_valid_curated_subset(self) -> None:
         report = self.report_named("protocol-28")
         self.assertEqual(report.status, "checked", report.reason)
-        self.assertEqual(report.row_count, report.fixture_count)
         self.assertGreater(report.row_count, 0)
+        self.assertLessEqual(report.row_count, report.fixture_count)
+
+    def test_a_new_fixture_does_not_need_a_readme_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pack = build_pack(
+                root,
+                "protocol-99",
+                {
+                    "xdr/cap-0083/a.toml": "xdr",
+                    "xdr/cap-0083/new-example.toml": "xdr",
+                },
+                FIXTURE_HEADER
+                + "| [`xdr/cap-0083/a.toml`](xdr/cap-0083/a.toml) | xdr | CAP-0083 | Example. |\n",
+            )
+            report = check_pack(pack)
+            self.assertEqual(report.errors, [])
+            self.assertEqual(report.row_count, 1)
+            self.assertEqual(report.fixture_count, 2)
 
     def test_packs_without_a_fixture_table_are_skipped_with_a_reason(self) -> None:
         # protocol-27's README exists but has no fixture table; protocol-29

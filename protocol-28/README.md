@@ -16,8 +16,9 @@ This directory holds no `manifest.toml` — see the repository root
 [`README.md`](../README.md#repository-relationship) for why: the
 `Protocol-Canary` loader parses every `*.toml` file it finds as a fixture,
 so a separate enumeration file in this format would either be ignored or,
-worse, misparsed as a broken fixture. The fixture files below *are* the
-enumeration.
+worse, misparsed as a broken fixture. The table below is a curated set of
+examples, not an exhaustive fixture inventory; use repository validation and
+the generated registry when a complete machine-readable inventory is needed.
 
 | Fixture | Surface | CAP | What it proves |
 |---|---|---|---|

@@ -98,17 +98,17 @@ kind = "rpc-response"
             code = generate.main(list(args))
         return code, out.getvalue(), err.getvalue()
 
-    def test_default_registry_path_allowed_and_idempotent(self) -> None:
+    def test_default_registry_output_is_stdout_only(self) -> None:
         code, out, err = self.run_generate(str(self.pack_dir))
         self.assertEqual(code, 0, err)
         default_output = self.pack_dir / "registry-v1.json"
-        self.assertTrue(default_output.is_file())
-        first_bytes = default_output.read_bytes()
+        self.assertFalse(default_output.exists())
+        self.assertIn('"registryVersion": 1', out)
 
-        # Re-running over existing registry-v1.json is allowed and byte-identical
         code2, out2, err2 = self.run_generate(str(self.pack_dir))
         self.assertEqual(code2, 0, err2)
-        self.assertEqual(default_output.read_bytes(), first_bytes)
+        self.assertEqual(out2, out)
+        self.assertFalse(default_output.exists())
 
     def test_output_to_fresh_path_allowed(self) -> None:
         fresh = self.root / "out" / "custom_reg.json"
@@ -124,8 +124,7 @@ kind = "rpc-response"
     def test_refuses_overwriting_fixture_direct_path(self) -> None:
         code, out, err = self.run_generate(str(self.pack_dir), "--output", str(self.fixture))
         self.assertEqual(code, 1)
-        self.assertIn("refusing to write", err)
-        self.assertIn("it is the same file as a pack fixture", err)
+        self.assertIn("registry output must be outside the pack directory", err)
         self.assertIn("FAILED: no registry written", err)
         self.assertEqual(self.fixture.read_bytes(), self.fixture_bytes)
 
@@ -133,8 +132,7 @@ kind = "rpc-response"
         rel_fixture = self.pack_dir / "rpc" / ".." / "rpc" / "p28-rpc-test.toml"
         code, out, err = self.run_generate(str(self.pack_dir), "--output", str(rel_fixture))
         self.assertEqual(code, 1)
-        self.assertIn("refusing to write", err)
-        self.assertIn("it is the same file as a pack fixture", err)
+        self.assertIn("registry output must be outside the pack directory", err)
         self.assertIn("FAILED: no registry written", err)
         self.assertEqual(self.fixture.read_bytes(), self.fixture_bytes)
 
@@ -146,8 +144,7 @@ kind = "rpc-response"
             self.skipTest("platform does not support symlinks")
         code, out, err = self.run_generate(str(self.pack_dir), "--output", str(sym))
         self.assertEqual(code, 1)
-        self.assertIn("refusing to write", err)
-        self.assertIn("it is the same file as a pack fixture", err)
+        self.assertIn("registry output must be outside the pack directory", err)
         self.assertEqual(self.fixture.read_bytes(), self.fixture_bytes)
 
     def test_refuses_overwriting_fixture_via_symlink_directory(self) -> None:
@@ -159,8 +156,7 @@ kind = "rpc-response"
         target = sym_dir / "p28-rpc-test.toml"
         code, out, err = self.run_generate(str(self.pack_dir), "--output", str(target))
         self.assertEqual(code, 1)
-        self.assertIn("refusing to write", err)
-        self.assertIn("it is the same file as a pack fixture", err)
+        self.assertIn("registry output must be outside the pack directory", err)
         self.assertEqual(self.fixture.read_bytes(), self.fixture_bytes)
 
     def test_refuses_overwriting_fixture_via_hardlink(self) -> None:
@@ -178,15 +174,13 @@ kind = "rpc-response"
     def test_refuses_output_equal_to_pack_directory(self) -> None:
         code, out, err = self.run_generate(str(self.pack_dir), "--output", str(self.pack_dir))
         self.assertEqual(code, 1)
-        self.assertIn("refusing to write", err)
-        self.assertIn("it is the same file as the pack directory", err)
+        self.assertIn("registry output must be outside the pack directory", err)
         self.assertTrue(self.pack_dir.is_dir())
 
     def test_refuses_output_equal_to_payload_file(self) -> None:
         code, out, err = self.run_generate(str(self.pack_dir), "--output", str(self.payload))
         self.assertEqual(code, 1)
-        self.assertIn("refusing to write", err)
-        self.assertIn("it is the same file as a pack payload", err)
+        self.assertIn("registry output must be outside the pack directory", err)
         self.assertEqual(self.payload.read_bytes(), self.payload_bytes)
 
     def test_refuses_existing_directory_target(self) -> None:

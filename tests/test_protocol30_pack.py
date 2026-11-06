@@ -18,6 +18,7 @@ import scval_xdr  # noqa: E402
 
 from tests import xdr_codec  # noqa: E402
 from tools.evidence import capture_live  # noqa: E402
+from tools.registry import generate as registry_generate  # noqa: E402
 
 PACK30 = ROOT / "protocol-30"
 PACK29 = ROOT / "protocol-29"
@@ -44,17 +45,17 @@ class Protocol30TestnetFixtureTests(unittest.TestCase):
         ])
 
     def test_registry_pins_fixture_bytes(self) -> None:
-        registry = json.loads((PACK30 / "registry-v1.json").read_text(encoding="utf-8"))
+        registry = json.loads(registry_generate.generate(PACK30))
         self.assertEqual(registry["protocol"], 30)
         entries = {entry["id"]: entry for entry in registry["fixtures"]}
-        self.assertEqual(
-            set(entries),
+        self.assertTrue(
             {
                 "p30-rpc-version-info-protocol-30",
                 "p30-xdr-cap0084-muxed-contract-address-roundtrip",
                 "p30-xdr-cap0088-stellar-value-signed-ms-roundtrip",
                 "p30-xdr-cap0088-stellar-value-empty-tx-set-ms-roundtrip",
-            },
+            } <= set(entries),
+            "required Protocol 30 baseline fixtures must stay in the generated registry",
         )
         paths = {
             "p30-rpc-version-info-protocol-30": FIXTURE,

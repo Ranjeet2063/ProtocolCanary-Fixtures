@@ -19,8 +19,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACK_DIR = REPO_ROOT / "protocol-29"
-REGISTRY_PATH = PACK_DIR / "registry-v1.json"
 SCHEMA_PATH = REPO_ROOT / "schemas" / "registry-v1.schema.json"
+from tools.registry import generate as registry_generate
 
 VALIDATE_PATH = REPO_ROOT / "tools" / "validate" / "validate.py"
 _spec = importlib.util.spec_from_file_location("validate_for_protocol29", VALIDATE_PATH)
@@ -64,7 +64,8 @@ def check_baseline(record: dict) -> list[str]:
 class Protocol29BaselineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+        cls.registry_text = registry_generate.generate(PACK_DIR)
+        cls.registry = json.loads(cls.registry_text)
 
     def test_pack_subdirectories_exist(self) -> None:
         for name in ("rpc", "xdr", "soroban"):
@@ -86,7 +87,7 @@ class Protocol29BaselineTests(unittest.TestCase):
     def test_registry_uses_the_canonical_encoding(self) -> None:
         # CF-02 section 3: UTF-8, LF, two-space indent, one trailing newline.
         expected = json.dumps(self.registry, indent=2, ensure_ascii=False) + "\n"
-        self.assertEqual(REGISTRY_PATH.read_text(encoding="utf-8"), expected)
+        self.assertEqual(self.registry_text, expected)
 
     def test_pack_digest_matches_the_protocol_29_fixture_files(self) -> None:
         files = {}
@@ -135,7 +136,8 @@ class Protocol29BaselineTests(unittest.TestCase):
         self.assertIn(PACK_DIR, roots, roots)
 
     def test_generator_tool_reproduces_protocol_29_registry_byte_for_byte(self) -> None:
-        # The generator output must reproduce the committed registry byte for byte.
+        # The generator output remains byte-for-byte canonical without a
+        # registry file in the source checkout.
         generate_path = REPO_ROOT / "tools" / "registry" / "generate.py"
         spec = importlib.util.spec_from_file_location("generate_for_protocol29", generate_path)
         gen = importlib.util.module_from_spec(spec)
@@ -147,8 +149,7 @@ class Protocol29BaselineTests(unittest.TestCase):
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = gen.main([str(PACK_DIR), "--stdout"])
         self.assertEqual(code, 0, stderr.getvalue())
-        committed = REGISTRY_PATH.read_text(encoding="utf-8")
-        self.assertEqual(stdout.getvalue(), committed)
+        self.assertEqual(stdout.getvalue(), self.registry_text)
 
 
 if __name__ == "__main__":

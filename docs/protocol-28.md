@@ -588,10 +588,9 @@ shipped fixture:
 | `p28-soroban-sim-resource-fee-matches-transaction-data` | `decimals()` | `SorobanTransactionData.resourceFee` inside `transactionData` equals the same response's `minResourceFee`. |
 | `p28-soroban-sim-resource-pure-read-footprint` | `symbol()` | A read-only accessor is estimated as read-only: one-entry `readOnly` footprint naming the invoked contract, empty `readWrite`, zero `diskReadBytes` and `writeBytes`. |
 
-They live under `tests/vectors/` rather than `protocol-28/soroban/` because both
-`tools/validate/validate.py` and `tools/badge/badge.py` discover packs by
-globbing `protocol-*/` only, so nothing there is parsed as a fixture, counted in
-README.md's badge, or handed to the loader. That is the same arrangement
+They live under `tests/vectors/` rather than `protocol-28/soroban/` because
+`tools/validate/validate.py` discovers packs by globbing `protocol-*/` only,
+so nothing there is parsed as a fixture or handed to the loader. That is the same arrangement
 [`tests/vectors/scval_parity/`](../tests/vectors/scval_parity/) already uses. The
 directory's own [`README.md`](../tests/vectors/resource_estimation/README.md)
 records the promotion criteria.
@@ -642,7 +641,7 @@ proposed fragment into `schemas/fixture-v1.schema.json`, extending
 `SOROBAN_EXPECT_KINDS`/`SOROBAN_EXPECT_FIELDS` in `tools/validate/validate.py`,
 refreshing `EXPECTED_IDS_BY_SURFACE` in
 [`../tests/test_pack_protocol_28.py`](../tests/test_pack_protocol_28.py),
-dropping each `[staged_observation]` table, and running `make badge`. The
+and dropping each `[staged_observation]` table. The
 staging directory's [`README.md`](../tests/vectors/resource_estimation/README.md)
 lists the same criteria next to the files they apply to.
 

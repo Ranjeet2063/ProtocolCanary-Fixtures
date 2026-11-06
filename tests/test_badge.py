@@ -107,10 +107,10 @@ class BadgeTests(unittest.TestCase):
         with self.assertRaises(badge.BadgeMarkerError):
             badge.render(reversed_markers, 6)
 
-    def test_readme_carries_the_generated_badge_markers(self) -> None:
+    def test_root_readme_does_not_require_a_changing_fixture_count_badge(self) -> None:
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn(badge.BADGE_START, readme)
-        self.assertIn(badge.BADGE_END, readme)
+        self.assertNotIn(badge.BADGE_START, readme)
+        self.assertNotIn(badge.BADGE_END, readme)
 
 
 class BadgeMainTests(unittest.TestCase):
@@ -237,21 +237,6 @@ class BadgeArgumentTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("usage:", result.stderr)
                 self.assertEqual(self.readme_bytes(), before)
-
-    def test_check_mode_is_unchanged_on_a_current_readme(self) -> None:
-        before = self.readme_bytes()
-        result = self.run_cli("--check")
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("OK: README.md fixtures badge is current", result.stdout)
-        self.assertEqual(self.readme_bytes(), before)
-
-    def test_default_write_mode_is_unchanged_on_a_current_readme(self) -> None:
-        before = self.readme_bytes()
-        result = self.run_cli()
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("OK: README.md fixtures badge already current", result.stdout)
-        self.assertEqual(self.readme_bytes(), before)
-
 
 if __name__ == "__main__":
     unittest.main()

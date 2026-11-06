@@ -60,7 +60,7 @@ the `ProtocolCanary-Action` GitHub Action, and the Stellar network itself.
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Main Branch                              │
-│  (validated fixtures, passing tests, current badge)        │
+│  (validated fixtures, passing tests, generated registry)  │
 └──────────────────────┬──────────────────────────────────────┘
                        │ Tag push (vX.Y.Z)
                        ▼

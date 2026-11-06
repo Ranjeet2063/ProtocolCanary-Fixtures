@@ -6,7 +6,7 @@
 
 - [ ] `python3 tools/validate/validate.py`
 - [ ] `python3 -m unittest discover tests`
-- [ ] `python3 tools/badge/badge.py --check` (or `make badge`) — required whenever a fixture was added or removed
+- [ ] `python3 tools/registry/check_all.py` — validates deterministic generated registries
 - [ ] Verified against a real `Protocol-Canary` build (state the version)
 
 ## Related issue

@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-r"""Cross-validate a protocol pack's fixtures against its registry (CF-02 section 6).
+r"""Cross-validate a protocol pack's fixtures against its generated registry (CF-02 section 6).
 
-``tools/registry/generate.py`` writes a pack's ``registry-v1.json`` and CI's
-freshness check regenerates it on every push (issue #269), so the committed
-registry cannot drift from a *regenerated* one. What that check cannot answer
-on its own is whether the registry on disk and the corpus on disk describe
-each other right now: an orphaned fixture that nobody regenerated for, or a
-registry entry whose file was deleted, is exactly the state this tool
-reports (CF-02 section 6, rules 2 and 3, issue #273):
+The registry is not committed in a source checkout. With no ``--registry``
+argument this tool generates the canonical registry into a temporary directory
+and validates it there. CI supplies the twice-generated temporary output so it
+can check deterministic bytes and full pack consistency without writing to a
+contributor branch. A consumer may also pass an archive-extracted or otherwise
+generated registry explicitly:
 
 * every regular ``*.toml`` file in the pack must be listed in the registry's
   ``fixtures[]`` array (an *orphaned* fixture is rejected, naming its path);
@@ -26,18 +25,19 @@ outside the pack and never executes anything.
 The registry document itself is checked against
 ``schemas/registry-v1.schema.json`` before it is used, and each path it
 names must be a plain pack-relative path, so a registry cannot make the
-checker read outside the pack. Freshness (regenerating the registry and
-comparing bytes) and ``packDigest`` recomputation are deliberately not done
-here: CI's check-registry step covers freshness, and this tool compares only
-what is committed against what is on disk.
+checker read outside the pack. This command validates the supplied registry
+schema and every fixture and payload entry against the pack. Canonical
+generation and the pack digest are handled by ``tools/registry/generate.py``;
+``tools/registry/check_all.py`` generates twice into isolated temporary
+locations and calls this validator.
 
 Usage:
-    python3 tools/validate/validate_registry.py [PACK ...]
+    python3 tools/validate/validate_registry.py [PACK ...] [--registry PATH]
 
 Without PACK arguments every ``protocol-*`` directory in the repository is
 checked. Exit codes:
 
-    0   every checked pack matches its registry
+    0   every checked pack matches its generated or supplied registry
     1   cross-validation problems: a fixture on disk is not listed, a listed
         fixture or payload is missing on disk, or a sha256 differs
     2   unusable input: a pack path that is not a directory, a registry that
@@ -55,6 +55,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +63,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.common.json_strict import JSONInputError, load_json
+from tools.registry import generate as registry_generator
 
 SCHEMA_PATH = REPO_ROOT / "schemas" / "registry-v1.schema.json"
 REGISTRY_NAME = "registry-v1.json"
@@ -117,7 +119,7 @@ def load_registry(path: Path) -> dict:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     problems = _load_schema_validator().validate(registry, schema)
     # The schema's fixtures minItems floor rejects an empty array, but an
-    # empty baseline (protocol-29) is a committed, valid registry;
+    # empty baseline packs can have a schema-valid generated registry;
     # tools/registry/generate.py filters the same message for --allow-empty.
     problems = [p for p in problems if "fewer than 1" not in p]
     if problems:
@@ -193,7 +195,11 @@ def display_path(path: Path) -> str:
 # ---------------------------------------------------------------- checking
 
 
-def check_pack(pack: Path, display: str) -> tuple[list[str], int, int]:
+def check_pack(
+    pack: Path,
+    display: str,
+    registry_path: Path | None = None,
+) -> tuple[list[str], int, int]:
     """``(problems, fixtures on disk, payload hashes verified)`` for one pack.
 
     Problems are deterministic: a missing registry first, then unlisted
@@ -201,13 +207,12 @@ def check_pack(pack: Path, display: str) -> tuple[list[str], int, int]:
     order. Raises RegistryInputError when the registry itself is unusable.
     """
     registry_display = f"{display}/{REGISTRY_NAME}"
-    registry_path = pack / REGISTRY_NAME
     disk = scan_fixture_paths(pack)
     problems: list[str] = []
     payload_count = 0
 
     entries: list[dict] = []
-    if registry_path.exists():
+    if registry_path is not None and registry_path.exists():
         entries = load_registry(registry_path)["fixtures"]
     elif disk:
         problems.append(
@@ -263,15 +268,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="validate_registry.py",
         description=(
-            "Cross-validate a protocol pack's fixtures against its committed "
-            "registry-v1.json: every *.toml on disk must be listed, every "
+            "Cross-validate a protocol pack's fixtures against its canonical "
+            "generated registry: every *.toml on disk must be listed, every "
             "listed fixture and payload must exist, and every sha256 must "
             "match. Reads files only; never executes anything."
         ),
         epilog=(
             "Without PACK arguments every protocol-* directory in the "
-            "repository is checked. Exit codes: 0 every pack matches its "
-            "registry, 1 cross-validation problems (an unlisted fixture, a "
+            "repository is checked. Without --registry, canonical output is "
+            "generated in a temporary directory. --registry may be used with "
+            "exactly one PACK. Exit codes: 0 every pack matches its "
+            "generated or supplied registry, 1 cross-validation problems (an unlisted fixture, a "
             "listed file missing on disk, a sha256 mismatch), 2 unusable "
             "input (a pack path that is not a directory, a registry that "
             "cannot be read or is not a usable registry document, or a "
@@ -285,6 +292,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PACK",
         help="pack directory to check (default: every protocol-* directory)",
     )
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        metavar="PATH",
+        help="validate this external registry (only with one PACK)",
+    )
     return parser
 
 
@@ -297,34 +310,58 @@ def main(argv: list[str]) -> int:
             path for path in REPO_ROOT.glob("protocol-*") if path.is_dir()
         )
     if not packs:
+        if args.registry is not None:
+            print("error: --registry requires one PACK", file=sys.stderr)
+            return 2
         print("OK: no protocol-* pack directories found")
         return 0
+    if args.registry is not None and len(packs) != 1:
+        print("error: --registry can only be used with one PACK", file=sys.stderr)
+        return 2
 
     total_problems = 0
-    for pack in packs:
-        if not pack.exists():
-            print(f"error: {pack}: no such directory", file=sys.stderr)
-            return 2
-        if not pack.is_dir():
-            print(f"error: {pack}: not a directory", file=sys.stderr)
-            return 2
-        display = display_path(pack)
-        try:
-            problems, fixtures, payloads = check_pack(pack, display)
-        except RegistryInputError as error:
-            print(f"error: {error}", file=sys.stderr)
-            return 2
-        if problems:
-            total_problems += len(problems)
-            for line in problems:
-                print(f"error: {line}", file=sys.stderr)
-        elif fixtures == 0 and not (pack / REGISTRY_NAME).exists():
-            print(f"OK: {display}: no fixtures and no {REGISTRY_NAME} to check")
-        else:
-            print(
-                f"OK: {display}: {fixtures} fixture(s) and {payloads} "
-                f"payload hash(es) match {REGISTRY_NAME}"
-            )
+    with tempfile.TemporaryDirectory(prefix="canary-registry-check-") as temp:
+        for index, pack in enumerate(packs):
+            if not pack.exists():
+                print(f"error: {pack}: no such directory", file=sys.stderr)
+                return 2
+            if not pack.is_dir():
+                print(f"error: {pack}: not a directory", file=sys.stderr)
+                return 2
+            display = display_path(pack)
+            registry_path = args.registry
+            disk = scan_fixture_paths(pack)
+            if registry_path is None and disk:
+                try:
+                    generated = registry_generator.generate(pack)
+                except registry_generator.PackError as error:
+                    print(
+                        f"error: {display}: could not generate registry: {error}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                registry_path = Path(temp) / f"{index}-{pack.name}-{REGISTRY_NAME}"
+                try:
+                    registry_path.write_bytes(generated.encode("utf-8"))
+                except OSError as error:
+                    print(f"error: could not write temporary registry: {error}", file=sys.stderr)
+                    return 2
+            try:
+                problems, fixtures, payloads = check_pack(pack, display, registry_path)
+            except RegistryInputError as error:
+                print(f"error: {error}", file=sys.stderr)
+                return 2
+            if problems:
+                total_problems += len(problems)
+                for line in problems:
+                    print(f"error: {line}", file=sys.stderr)
+            elif fixtures == 0 and registry_path is None:
+                print(f"OK: {display}: no fixtures and no generated registry to check")
+            else:
+                print(
+                    f"OK: {display}: {fixtures} fixture(s) and {payloads} "
+                    "payload hash(es) match the generated registry"
+                )
 
     if total_problems:
         print(f"FAILED: {total_problems} problem(s)", file=sys.stderr)

@@ -1,7 +1,7 @@
 """Tests for tools/validate/check_changelog.py (Rule [F-055]).
 
 All tests run completely offline and standard-library-only.
-Verifies that pull requests modifying fixtures, schemas, or tools require a CHANGELOG entry,
+Verifies that pull requests modifying fixtures, schemas, or tools add a unique changelog fragment,
 and that exemptions (docs, tests, workflows, no-changelog opt-out label) are honored.
 """
 from __future__ import annotations
@@ -25,6 +25,7 @@ from tools.validate.check_changelog import (
     build_markdown_summary,
     check_changelog,
     extract_labels_from_event,
+    get_git_added_fragments,
     get_git_diff_files,
     is_changelog_file,
     is_governed_path,
@@ -36,6 +37,42 @@ from tools.validate.check_changelog import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECK_CHANGELOG_PATH = REPO_ROOT / "tools" / "validate" / "check_changelog.py"
+CHANGELOG_FRAGMENT = "changelog.d/common/d03-independent-fixture-contributions.md"
+
+
+class TestAddedFragmentGitDiff(unittest.TestCase):
+    """Only newly added changelog fragments satisfy the PR rule."""
+
+    def test_origin_base_falls_back_to_local_main_and_excludes_modified_fragments(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(["git", "checkout", "-b", "main"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            old = root / "changelog.d" / "common" / "existing.md"
+            old.parent.mkdir(parents=True)
+            old.write_text("- Existing fragment.\n", encoding="utf-8")
+            subprocess.run(["git", "add", "changelog.d"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], cwd=root, check=True)
+            subprocess.run(["git", "checkout", "-b", "contribution"], cwd=root, check=True, capture_output=True)
+
+            old.write_text("- Modified existing fragment.\n", encoding="utf-8")
+            new = root / "changelog.d" / "protocol-28" / "new.md"
+            new.parent.mkdir(parents=True)
+            new.write_text("- New fragment.\n", encoding="utf-8")
+            subprocess.run(["git", "add", "changelog.d"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "add new fragment"], cwd=root, check=True)
+
+            self.assertEqual(
+                get_git_added_fragments("origin/main", root),
+                ["changelog.d/protocol-28/new.md"],
+            )
+
+    def test_missing_git_executable_is_reported(self) -> None:
+        with patch("tools.validate.check_changelog.subprocess.run", side_effect=FileNotFoundError):
+            with self.assertRaisesRegex(RuntimeError, "git executable not found"):
+                get_git_added_fragments("main", Path.cwd())
 
 
 class TestPathClassification(unittest.TestCase):
@@ -68,13 +105,17 @@ class TestPathClassification(unittest.TestCase):
             self.assertEqual(res2, "abs/path/to/file.txt")
 
     def test_is_changelog_file(self) -> None:
-        self.assertTrue(is_changelog_file("CHANGELOG.md"))
-        self.assertTrue(is_changelog_file("./CHANGELOG.md"))
-        self.assertTrue(is_changelog_file("changelog.md"))
-        self.assertTrue(is_changelog_file("CHANGELOG.markdown"))
+        self.assertTrue(is_changelog_file(CHANGELOG_FRAGMENT))
+        self.assertTrue(is_changelog_file("./changelog.d/common/tooling.md"))
+        self.assertFalse(is_changelog_file("CHANGELOG.md"))
+        self.assertFalse(is_changelog_file("./CHANGELOG.md"))
+        self.assertFalse(is_changelog_file("changelog.md"))
+        self.assertFalse(is_changelog_file("CHANGELOG.markdown"))
         self.assertFalse(is_changelog_file("docs/CHANGELOG.md"))
         self.assertFalse(is_changelog_file("protocol-28/CHANGELOG.md"))
         self.assertFalse(is_changelog_file("README.md"))
+        self.assertFalse(is_changelog_file("changelog.d/protocol-foo/example.md"))
+        self.assertFalse(is_changelog_file("changelog.d/protocol-28/../escape.md"))
 
     def test_is_governed_path_fixtures(self) -> None:
         self.assertTrue(is_governed_path("protocol-28/xdr/p28-xdr-cap83.toml"))
@@ -127,7 +168,7 @@ class TestPathClassification(unittest.TestCase):
         self.assertFalse(is_governed_path(".gitignore"))
         self.assertFalse(is_governed_path(".gitattributes"))
 
-        # CHANGELOG itself is not a governed fixture/tool/schema
+        # Historical root CHANGELOG is not a governed fixture/tool/schema.
         self.assertFalse(is_governed_path("CHANGELOG.md"))
 
         # Root files with deceptive names
@@ -161,29 +202,77 @@ class TestCheckChangelogCoreRules(unittest.TestCase):
         self.assertIn(RULE_ID, res.message)
         self.assertIn(OPT_OUT_LABEL, res.message)
 
-    def test_governed_changes_with_changelog_passes(self) -> None:
-        # Fixture + CHANGELOG.md
-        res1 = check_changelog(["protocol-28/xdr/new_fixture.toml", "CHANGELOG.md"])
+    def test_governed_changes_with_fragment_pass(self) -> None:
+        res1 = check_changelog(["protocol-28/xdr/new_fixture.toml", CHANGELOG_FRAGMENT])
         self.assertTrue(res1.passed)
         self.assertTrue(res1.has_changelog)
-        self.assertIn("CHANGELOG.md has been updated", res1.message)
+        self.assertIn("a changelog fragment was added", res1.message)
 
-        # Schema + CHANGELOG.md
-        res2 = check_changelog(["schemas/fixture-v1.schema.json", "./CHANGELOG.md"])
+        res2 = check_changelog(["schemas/fixture-v1.schema.json", CHANGELOG_FRAGMENT])
         self.assertTrue(res2.passed)
         self.assertTrue(res2.has_changelog)
 
-        # Tool + CHANGELOG.md
-        res3 = check_changelog(["tools/pack/pack.py", "CHANGELOG.md"])
+        res3 = check_changelog(["tools/pack/pack.py", CHANGELOG_FRAGMENT])
         self.assertTrue(res3.passed)
         self.assertTrue(res3.has_changelog)
+
+    def test_root_changelog_does_not_satisfy_fragment_requirement(self) -> None:
+        result = check_changelog(["tools/pack/pack.py", "CHANGELOG.md"])
+        self.assertFalse(result.passed)
+        self.assertFalse(result.has_changelog)
+
+    def test_modified_existing_fragment_does_not_satisfy_requirement(self) -> None:
+        result = check_changelog(
+            ["tools/pack/pack.py", CHANGELOG_FRAGMENT],
+            added_fragments=[],
+        )
+        self.assertFalse(result.passed)
+
+    def test_added_fragment_must_be_non_empty_utf8(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fragment = root / CHANGELOG_FRAGMENT
+            fragment.parent.mkdir(parents=True)
+            fragment.write_text("  \n", encoding="utf-8")
+            empty = check_changelog(
+                ["tools/pack/pack.py", CHANGELOG_FRAGMENT],
+                repo_root=root,
+                added_fragments=[CHANGELOG_FRAGMENT],
+            )
+            self.assertFalse(empty.passed)
+            self.assertIn("non-empty UTF-8 Markdown", empty.message)
+
+            fragment.write_text("- Document a tool change.\n", encoding="utf-8")
+            valid = check_changelog(
+                ["tools/pack/pack.py", CHANGELOG_FRAGMENT],
+                repo_root=root,
+                added_fragments=[CHANGELOG_FRAGMENT],
+            )
+            self.assertTrue(valid.passed)
+
+            fragment.write_bytes(b"- invalid UTF-8: \xff\n")
+            invalid_utf8 = check_changelog(
+                ["tools/pack/pack.py", CHANGELOG_FRAGMENT],
+                repo_root=root,
+                added_fragments=[CHANGELOG_FRAGMENT],
+            )
+            self.assertFalse(invalid_utf8.passed)
+            self.assertIn("non-empty UTF-8 Markdown", invalid_utf8.message)
+
+            fragment.unlink()
+            missing = check_changelog(
+                ["tools/pack/pack.py", CHANGELOG_FRAGMENT],
+                repo_root=root,
+                added_fragments=[CHANGELOG_FRAGMENT],
+            )
+            self.assertFalse(missing.passed)
 
     def test_exempt_changes_only_pass_without_changelog(self) -> None:
         # Documentation only
         res1 = check_changelog(["docs/protocol-28.md", "README.md", "CONTRIBUTING.md"])
         self.assertTrue(res1.passed)
         self.assertEqual(res1.governed_files, [])
-        self.assertIn("CHANGELOG.md is not required", res1.message)
+        self.assertIn("a changelog fragment is not required", res1.message)
 
         # Tests only
         res2 = check_changelog(["tests/test_validate.py", "tests/scval_xdr.py"])
@@ -209,8 +298,7 @@ class TestCheckChangelogCoreRules(unittest.TestCase):
         self.assertEqual(res.governed_files, ["tools/foo.py"])
 
     def test_pr_number_not_required(self) -> None:
-        # Acceptance criteria: do not require the changelog entry to contain the PR number
-        res = check_changelog(["tools/badge/badge.py", "CHANGELOG.md"])
+        res = check_changelog(["tools/badge/badge.py", CHANGELOG_FRAGMENT])
         self.assertTrue(res.passed)
 
 
@@ -320,7 +408,7 @@ class TestEdgeCases(unittest.TestCase):
         self.assertIn("protocol-28/xdr/old_fixture.toml", res.governed_files)
 
         # Deleting a fixture with changelog passes
-        res_with = check_changelog(["D\tprotocol-28/xdr/old_fixture.toml", "CHANGELOG.md"])
+        res_with = check_changelog(["D\tprotocol-28/xdr/old_fixture.toml", CHANGELOG_FRAGMENT])
         self.assertTrue(res_with.passed)
 
         # Deleting an exempt file passes without changelog
@@ -342,7 +430,7 @@ class TestEdgeCases(unittest.TestCase):
 
         # Rename with changelog passes
         res3 = check_changelog(
-            ["protocol-28/xdr/a.toml -> protocol-28/xdr/b.toml", "CHANGELOG.md"]
+            ["protocol-28/xdr/a.toml -> protocol-28/xdr/b.toml", CHANGELOG_FRAGMENT]
         )
         self.assertTrue(res3.passed)
 
@@ -460,16 +548,16 @@ class TestCliInterface(unittest.TestCase):
     def test_cli_positional_arguments_governed_with_changelog_pass(self) -> None:
         stdout = io.StringIO()
         with patch("sys.stdout", stdout):
-            code = main(["protocol-28/xdr/test.toml", "CHANGELOG.md"])
+            code = main(["protocol-28/xdr/test.toml", CHANGELOG_FRAGMENT])
         self.assertEqual(code, 0)
-        self.assertIn("CHANGELOG.md has been updated", stdout.getvalue())
+        self.assertIn("a changelog fragment was added", stdout.getvalue())
 
     def test_cli_flag_files(self) -> None:
         stdout = io.StringIO()
         with patch("sys.stdout", stdout):
-            code = main(["--files", "tools/badge/badge.py", "CHANGELOG.md"])
+            code = main(["--files", "tools/badge/badge.py", CHANGELOG_FRAGMENT])
         self.assertEqual(code, 0)
-        self.assertIn("CHANGELOG.md has been updated", stdout.getvalue())
+        self.assertIn("a changelog fragment was added", stdout.getvalue())
 
     def test_cli_with_opt_out_label_flag(self) -> None:
         stdout = io.StringIO()
@@ -496,34 +584,35 @@ class TestCliInterface(unittest.TestCase):
             self.assertIn("bypassed by 'no-changelog' label", stdout.getvalue())
 
     def test_cli_with_stdin_dash(self) -> None:
-        stdin = io.StringIO("tools/validate/validate.py\n\nCHANGELOG.md\n")
+        stdin = io.StringIO(f"tools/validate/validate.py\n\n{CHANGELOG_FRAGMENT}\n")
         stdout = io.StringIO()
         with patch("sys.stdin", stdin), patch("sys.stdout", stdout):
             code = main(["-"])
         self.assertEqual(code, 0)
-        self.assertIn("CHANGELOG.md has been updated", stdout.getvalue())
+        self.assertIn("a changelog fragment was added", stdout.getvalue())
 
     def test_cli_with_stdin_flag(self) -> None:
-        stdin = io.StringIO("tools/validate/validate.py\nCHANGELOG.md\n")
+        stdin = io.StringIO(f"tools/validate/validate.py\n{CHANGELOG_FRAGMENT}\n")
         stdout = io.StringIO()
         with patch("sys.stdin", stdin), patch("sys.stdout", stdout):
             code = main(["--stdin"])
         self.assertEqual(code, 0)
-        self.assertIn("CHANGELOG.md has been updated", stdout.getvalue())
+        self.assertIn("a changelog fragment was added", stdout.getvalue())
 
     def test_cli_with_piped_stdin(self) -> None:
-        stdin = io.StringIO("tools/validate/validate.py\n\nCHANGELOG.md\n")
+        stdin = io.StringIO(f"tools/validate/validate.py\n\n{CHANGELOG_FRAGMENT}\n")
         stdout = io.StringIO()
         with patch("sys.stdin", stdin), patch("sys.stdout", stdout), patch("sys.stdin.isatty", return_value=False):
             code = main([])
         self.assertEqual(code, 0)
-        self.assertIn("CHANGELOG.md has been updated", stdout.getvalue())
+        self.assertIn("a changelog fragment was added", stdout.getvalue())
 
     def test_cli_with_base_flag_success(self) -> None:
         stdout = io.StringIO()
-        with patch("tools.validate.check_changelog.get_git_diff_files", return_value=["CHANGELOG.md"]):
-            with patch("sys.stdout", stdout):
-                code = main(["--base", "HEAD"])
+        with patch("tools.validate.check_changelog.get_git_diff_files", return_value=[CHANGELOG_FRAGMENT]):
+            with patch("tools.validate.check_changelog.get_git_added_fragments", return_value=[CHANGELOG_FRAGMENT]):
+                with patch("sys.stdout", stdout):
+                    code = main(["--base", "HEAD"])
         self.assertEqual(code, 0)
 
     def test_cli_with_base_flag_git_error(self) -> None:
@@ -577,7 +666,7 @@ class TestCliInterface(unittest.TestCase):
             ])
             self.assertTrue(summary_file.exists())
             content = summary_file.read_text(encoding="utf-8")
-            self.assertIn("CHANGELOG Validation [F-055]", content)
+            self.assertIn("Changelog fragment validation [F-055]", content)
             self.assertIn("PASSED", content)
 
     def test_cli_summary_file_written_failure(self) -> None:

@@ -33,6 +33,10 @@ pass repository validation. They do not claim that an XDR payload was accepted
 by a Stellar node or that a consensus signature is valid. The release gate
 continues to require fresh live Testnet identity evidence for the RPC fixture.
 
+The table above lists representative fixtures, not the complete pack. Each
+independent fixture contribution has its own file and focused test; adding one
+does not require changing this README or a central fixture-count assertion.
+
 The repository's read-only capture tool must create evidence under
 `evidence/live/testnet/`. Without a passing fresh capture and its matched
 verification record, do not claim the live fixture pack is verified.

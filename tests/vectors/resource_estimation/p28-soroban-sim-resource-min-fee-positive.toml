@@ -13,8 +13,8 @@
 # entire run as an invalid-fixture error (exit 4) rather than being skipped.
 # CONTRIBUTING.md#fixture-schema says an unsupported assertion may be added here
 # "only ... once that support exists and is released". tools/validate/validate.py
-# and tools/badge/badge.py both scan only protocol-*/, so this directory is
-# invisible to CI's structural checks and to the fixture-count badge.
+# scans only protocol-*/, so this directory is invisible to CI's structural
+# fixture checks.
 # tests/test_sim_resource_fixtures.py is what validates this file instead.
 #
 # What this asserts, once supported. Invoking `name()` on the testnet Stellar

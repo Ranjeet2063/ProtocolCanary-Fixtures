@@ -18,21 +18,22 @@ Release asset publication:
 - **Manual steps (maintainer):**
   1. Complete pre-release quality and consistency checks.
   2. Select the protocol pack and release version (Semantic Versioning `MAJOR.MINOR.PATCH`).
-  3. Update `CHANGELOG.md` with the release version and UTC date.
-  4. Ensure the candidate commit is on protected `main`, then create and push
+  3. Ensure the candidate commit is on protected `main`, then create and push
      its protocol-scoped tag: `fixtures-p28-vX.Y.Z`, `fixtures-p29-vX.Y.Z`, or `fixtures-p30-vX.Y.Z`.
-  5. After the tag workflow succeeds, publish a GitHub Release for that exact
+  4. After the tag workflow succeeds, publish a GitHub Release for that exact
      tag when ready to distribute the assets.
 - **Tag-push automation (`.github/workflows/release-pack.yml`):** selects the
   pack from the scoped tag, checks that the tag ref and commit agree and that
   the commit is in `origin/main` history, builds twice, verifies the archive,
-  creates the manifest and checksum, then attests the archive and manifest.
+  creates the manifest and checksum, generates versioned release notes from
+  immutable changelog fragments, then attests the archive, manifest and notes.
   A tag push does not publish GitHub Release assets.
 - **Manual dispatch:** builds and verifies a candidate only. It receives no
   write permissions and does not attest or publish.
 - **Release-published automation:** independently validates the exact release
   tag and main-history commit, rebuilds and re-verifies the candidate, then a
-  separate narrowly permissioned job uploads the three assets to that release.
+  separate narrowly permissioned job uploads the archive, manifest, checksum
+  and generated changelog to that release.
   This event does not create a tag or a GitHub Release.
 
 ---
@@ -54,19 +55,7 @@ Expected output:
 OK: 95 fixture file(s) valid across 4 root(s)
 ```
 
-### Step 2.2: Fixtures count badge freshness
-Confirm the README badge matches the fixture inventory:
-
-```bash
-python3 tools/badge/badge.py --check
-```
-
-Expected output:
-```
-OK: README.md fixtures badge is current (95 fixture file(s))
-```
-
-### Step 2.3: Repository test suite
+### Step 2.2: Repository test suite
 Run all unit tests across the repository:
 
 ```bash
@@ -78,23 +67,22 @@ Expected output:
 OK
 ```
 
-### Step 2.4: Registry freshness
-Verify that committed registries match what `tools/registry/generate.py` generates.
-For non-empty packs (such as `protocol-28`):
+### Step 2.3: Generated registry validation
+Generate each populated registry twice into isolated temporary paths and
+validate its schema, fixture set, payloads and hashes without modifying the
+source checkout:
 
 ```bash
-python3 tools/registry/generate.py protocol-28 --stdout
+python3 tools/registry/check_all.py protocol-28 protocol-29 protocol-30
 ```
 
-An empty pack cannot be promoted as verified. Do not generate a release registry
-for an empty baseline. Protocol 29 must have non-empty, sourced fixture coverage
-before a verified release can be built:
+An empty pack such as Protocol 27 does not need a source-checkout registry and
+cannot be promoted as a verified fixture release. Protocol 29 must have
+non-empty, sourced fixture coverage before a verified release can be built.
+The release packer generates the canonical root `registry.json` in every
+archive from the current pack contents.
 
-```bash
-python3 tools/registry/generate.py protocol-29 --stdout
-```
-
-### Step 2.5: Protocol 29 live coverage
+### Step 2.4: Protocol 29 live coverage
 
 Before selecting Protocol 29 for a release, require a current matched
 `live-read-only` record and linked raw capture for every fixture on both Testnet
@@ -104,7 +92,7 @@ The release packer enforces both networks and the 30-day live-evidence freshness
 window; structural records and records under `history/` do not satisfy it.
 Protocol 28 releases keep their existing unverified packing behavior.
 
-### Step 2.6: Protocol 30 Testnet evidence gate
+### Step 2.5: Protocol 30 Testnet evidence gate
 
 Protocol 30 releases must have a fresh, matched, read-only verification
 record linked to two coherent raw Testnet captures (`getVersionInfo`
@@ -114,12 +102,14 @@ times and the exact supported identity assertion. Evidence must be
 no more than 30 days old. This is **RPC identity only**, not XDR,
 Soroban, Mainnet or Futurenet Protocol 30 verification.
 
-### Step 2.7: CHANGELOG and version selection
-1. Choose an exact version string following `MAJOR.MINOR.PATCH` (e.g. `0.1.0`).
-2. Update the `## [Unreleased]` section in [`CHANGELOG.md`](../CHANGELOG.md) by
-   creating a new heading for the version with the current UTC date in
-   `YYYY-MM-DD` format (for example, `## [0.1.0] - YYYY-MM-DD`).
-3. Commit the changelog change and ensure the branch is merged into `main`.
+### Step 2.6: Version selection
+
+Choose an exact version string following `MAJOR.MINOR.PATCH` (for example,
+`0.1.0`). Contributor changes are recorded in immutable files under
+`changelog.d/`; the release workflow selects new fragments since the previous
+protocol tag and generates the versioned Markdown changelog asset. It also
+regenerates and compares that asset before publishing, so no manual changelog
+edit or bot commit is required.
 
 ---
 
@@ -257,15 +247,17 @@ git push upstream fixtures-p29-v0.1.0
 
 Use `fixtures-p28-v0.1.0` for Protocol 28 or `fixtures-p30-v0.1.0`
 for Protocol 30, after confirming the Protocol 30 tag ruleset. A successful tag-push workflow
-builds and attests the archive and manifest, but does not upload release assets.
+builds and attests the archive, manifest and generated changelog, but does not
+upload release assets.
 After reviewing its result, create and publish a GitHub Release using that same
 scoped tag. The `release.published` workflow event rebuilds and verifies the
 candidate; only its `publish` job has `contents: write` and uploads exactly
-these three assets to the matching GitHub Release:
+these four assets to the matching GitHub Release:
 
 1. `protocolcanary-fixtures-<version>.tar.gz`
 2. `protocolcanary-fixtures-<version>.manifest.json`
 3. `protocolcanary-fixtures-<version>.sha256`
+4. `protocolcanary-fixtures-<version>.changelog.md`
 
 GitHub build-provenance attestations are generated on the tag-push workflow for
 the archive and manifest. Release uploads do not replace existing assets; a
@@ -327,9 +319,10 @@ If a defect is discovered in a published release archive or manifest:
 1. **Do not move or delete the tag.** Moving tags breaks consumer caches and
    violates provenance guarantees.
 2. **Author the fix.** Prepare a pull request addressing the defect.
-3. **Bump the patch version.** Update `CHANGELOG.md` with an incremented patch
-   version (e.g. `0.1.1`), explicitly stating that it supersedes `0.1.0` and
-   describing the issue resolved.
+3. **Bump the patch version.** Add a unique fragment under the affected
+   `changelog.d/protocol-NN/` directory describing the correction and noting
+   the superseded version where relevant. The release workflow generates the
+   versioned changelog asset from that fragment.
 4. **Publish the superseding release.** Merge to `main` and use a new
    protocol-scoped patch tag (e.g. `fixtures-p29-v0.1.1` or
    `fixtures-p28-v0.1.1`).

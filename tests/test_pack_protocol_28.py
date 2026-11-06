@@ -177,7 +177,12 @@ class Protocol28PackTests(unittest.TestCase):
             surface = fx.data.get("surface")
             if surface in by_surface:
                 by_surface[surface].add(fx.data.get("id"))
-        self.assertEqual(by_surface, EXPECTED_IDS_BY_SURFACE)
+        for surface, required_ids in EXPECTED_IDS_BY_SURFACE.items():
+            with self.subTest(surface=surface):
+                self.assertTrue(
+                    required_ids <= by_surface.get(surface, set()),
+                    f"required baseline fixtures are missing for {surface}",
+                )
 
     def test_changelog_fixture_ids_still_exist_or_are_marked_removed(self) -> None:
         changelog = CHANGELOG.read_text(encoding="utf-8")

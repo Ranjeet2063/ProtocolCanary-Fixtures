@@ -6,31 +6,25 @@ The interfaces this repository shares with `Protocol-Canary` and
 This page lists what each contract asks of this repository. It does not repeat
 the rules; read the linked contract before implementing anything.
 
-Most of the work below does not exist yet. Until a unit is implemented, the
-current behavior is the one described in the README and `CONTRIBUTING.md`.
-Implemented so far: the shared conformance vectors (`tests/vectors/cf-02/`,
-checked by `tests/test_cf02_vectors.py`), which is CF-02-A; the registry JSON
-Schema; and the registry generator (`tools/registry/generate.py`,
-`make registry`), which is CF-02-B and CF-02-C. The registry comparison tool
-(`tools/registry/diff.py`, `make registry-diff`) reports which fixtures were
-added, removed or changed between two registries, so a pack release can be
-described from the registry data instead of by hand; it reads only the two
-registry files and changes no contract. Both packs' generated
-`registry-v1.json` files are committed (`protocol-28/registry-v1.json`,
-`protocol-29/registry-v1.json`), and CI's `check-registry` step in
-`.github/workflows/validate.yml` regenerates them on every push and pull
-request and fails when either differs from the committed file — that is
-CF-02-E. Also still open: CF-02-D (the registry validator
-rules), CF-02-F (the Rust pack walker and digest that must match CF-02-A) and
-CF-02-H (`.gitattributes` pinning LF for pack files).
+The shared conformance vectors (`tests/vectors/cf-02/`, checked by
+`tests/test_cf02_vectors.py`) implement CF-02-A. The registry-v1 JSON Schema,
+generator, validator and registry comparison tool are implemented. Protocol 28, Protocol 29 and
+Protocol 30 registries are generated from pack contents and are not committed
+in the source checkout. On every push and pull request,
+`tools/registry/check_all.py` writes each populated pack registry twice to
+isolated temporary paths, requires byte-identical output, and validates the
+registry schema, fixture set, payloads and hashes. The release packer generates
+the same canonical v1 registry into each archive as root `registry.json`.
+CF-02-E is therefore a temporary-output validation, not a committed-file
+freshness check. The registry comparison tool (`tools/registry/diff.py`,
+`make registry-diff`) still reports changes between two registries without
+modifying either input.
 
 | Contract | What this repository owns |
 |---|---|
-| [CF-02 Registry and pack digest](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-02-registry-and-digest.md) | The registry generator, the registry JSON Schema, the validator rules and the CI freshness check. Python must agree byte for byte with the Rust implementation in the engine; the shared conformance vectors (CF-02-A) live in [`tests/vectors/cf-02/`](../tests/vectors/cf-02/). |
-| [CF-04 Verification evidence](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-04-verification-evidence.md) | Evidence records for fixtures, the freshness report, and the Protocol 29 boundary text. No Protocol 29 fixture is added without live evidence recorded under that contract. |
-| [CF-06 Canonical fixture releases](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-06-fixture-releases.md) | The deterministic archive builder, the release manifest, the release workflow and the immutability rules. The existing `protocol-28` tag keeps its meaning. The manifest's `compatibleEngines[].verified` flag is set only from a real pack-by-engine run record; the format and the rule are in [`docs/run-records.md`](run-records.md). |
-| [CF-04 Verification evidence](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-04-verification-evidence.md) | Evidence records for fixtures, the freshness report, and the Protocol 29 boundary text. No Protocol 29 fixture is added without live evidence recorded under that contract. The scheduled read-only job that keeps the live evidence fresh is described in [`docs/live-verification.md`](live-verification.md). |
-| [CF-06 Canonical fixture releases](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-06-fixture-releases.md) | The deterministic archive builder, the release manifest, the release workflow and the immutability rules. The existing `protocol-28` tag keeps its meaning. |
+| [CF-02 Registry and pack digest](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-02-registry-and-digest.md) | Deterministic registry generation, the unchanged registry-v1 schema, pack validation and temporary-output CI checks for Protocol 28, Protocol 29 and Protocol 30. Source-checkout registries are generated outside the packs; archives keep the generated root `registry.json`. Python must agree byte for byte with the Rust implementation; shared vectors live in [`tests/vectors/cf-02/`](../tests/vectors/cf-02/). |
+| [CF-04 Verification evidence](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-04-verification-evidence.md) | Fixture-specific evidence records and freshness reporting. Protocol 29 additions require real Testnet and Futurenet evidence under the contract; Protocol 30 identity evidence remains Testnet-only and separate from offline XDR structural records. The scheduled read-only freshness job is described in [`docs/live-verification.md`](live-verification.md). |
+| [CF-06 Canonical fixture releases](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-06-fixture-releases.md) | Deterministic archive builder, release manifest, release workflow and immutability rules. The existing `protocol-28` tag keeps its meaning. `compatibleEngines[].verified` is set only from a real pack-by-engine run record, documented in [`docs/run-records.md`](run-records.md). |
 | [CF-07 Project detection](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-07-project-roots-and-detection.md) | Only the `required_capabilities` vocabulary: it must match the engine's `Capability` set, enforced by a cross-language test. |
 
 ## Portable paths and safe text

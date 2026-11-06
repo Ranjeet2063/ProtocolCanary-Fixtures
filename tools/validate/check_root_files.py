@@ -36,6 +36,7 @@ DEFAULT_ALLOWLIST: frozenset[str] = frozenset({
     "README.md",
     "SECURITY.md",
     "assets",
+    "changelog.d",
     "docs",
     "protocol-27",
     "protocol-28",

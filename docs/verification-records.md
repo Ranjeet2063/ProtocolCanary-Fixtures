@@ -136,6 +136,23 @@ changed fixture makes the old record describe an earlier version of the file:
 the validator then reports it, which is the point. The record is not
 refreshed silently; it is replaced by a new one that says when the check ran.
 
+For an independent fixture contribution, write the generated set to a temporary
+directory and stage only the new fixture's record. This keeps each contribution
+on its own evidence path while still running the structural validator against
+the pack:
+
+```console
+$ FIXTURE_ID=p30-xdr-example
+$ record_tmp="$(mktemp -d)"
+$ python3 tools/evidence/record_structural.py protocol-30 --output-dir "$record_tmp"
+$ cp "$record_tmp/$FIXTURE_ID.json" "protocol-30/evidence/records/$FIXTURE_ID.json"
+```
+
+Do not stage the other files in `record_tmp`; they are generated for validation
+and are not part of this fixture's change. Existing Protocol 29 Testnet and
+Futurenet evidence requirements and the Protocol 30 Testnet identity release
+gate are unchanged.
+
 > **The hashes assume an LF checkout.** The records hash the fixture files as
 > they are on disk. A checkout that rewrites LF as CRLF (git's
 > `core.autocrlf`, which is on by default on the Windows runners) produces

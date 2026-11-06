@@ -142,6 +142,17 @@ jobs:
           python3 tools/pack/verify_archive.py "$ARCHIVE" --manifest "$MANIFEST"
           (cd /tmp/build1 && sha256sum -c "$(basename "$CHECKSUM")")
 
+      - name: Generate deterministic release changelog from fragments
+        env:
+          PACK: ${{ steps.selection.outputs.pack }}
+          VERSION: ${{ steps.selection.outputs.version }}
+        run: |
+          PROTOCOL="${PACK#protocol-}"
+          python3 tools/release/changelog.py \
+            --protocol "$PROTOCOL" \
+            --version "$VERSION" \
+            --output "/tmp/build1/protocolcanary-fixtures-${VERSION}.changelog.md"
+
       - name: Upload verified release candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -150,6 +161,7 @@ jobs:
             /tmp/build1/protocolcanary-fixtures-${{ steps.selection.outputs.version }}.tar.gz
             /tmp/build1/protocolcanary-fixtures-${{ steps.selection.outputs.version }}.manifest.json
             /tmp/build1/protocolcanary-fixtures-${{ steps.selection.outputs.version }}.sha256
+            /tmp/build1/protocolcanary-fixtures-${{ steps.selection.outputs.version }}.changelog.md
           if-no-files-found: error
           retention-days: 1
 
@@ -174,6 +186,7 @@ jobs:
           subject-path: |
             dist/protocolcanary-fixtures-${{ needs.build.outputs.version }}.tar.gz
             dist/protocolcanary-fixtures-${{ needs.build.outputs.version }}.manifest.json
+            dist/protocolcanary-fixtures-${{ needs.build.outputs.version }}.changelog.md
 
   publish:
     if: github.event_name == 'release' && github.event.action == 'published'
@@ -229,6 +242,19 @@ jobs:
           python3 tools/pack/verify_archive.py "$ARCHIVE" --manifest "$MANIFEST"
           (cd dist && sha256sum -c "$(basename "$CHECKSUM")")
 
+      - name: Regenerate and compare release changelog
+        env:
+          PACK: ${{ needs.build.outputs.pack }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          PROTOCOL="${PACK#protocol-}"
+          python3 tools/release/changelog.py \
+            --protocol "$PROTOCOL" \
+            --version "$VERSION" \
+            --output /tmp/release-changelog.md
+          cmp /tmp/release-changelog.md \
+            "dist/protocolcanary-fixtures-${VERSION}.changelog.md"
+
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -239,4 +265,5 @@ jobs:
             "dist/protocolcanary-fixtures-${VERSION}.tar.gz" \
             "dist/protocolcanary-fixtures-${VERSION}.manifest.json" \
             "dist/protocolcanary-fixtures-${VERSION}.sha256" \
+            "dist/protocolcanary-fixtures-${VERSION}.changelog.md" \
             --repo "$GITHUB_REPOSITORY"

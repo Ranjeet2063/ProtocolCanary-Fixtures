@@ -181,14 +181,16 @@ class GoldenVectorTests(PackCase):
         extras[".git/ignored.toml"] = b"not = [valid toml\n"
         self.assertEqual(generate.generate(self.make_pack(extras)), GOLDEN_REGISTRY)
 
-    def test_regenerating_over_an_existing_registry_is_idempotent(self) -> None:
+    def test_repeated_external_registry_output_is_idempotent(self) -> None:
         pack = self.make_pack(GOLDEN_FILES)
+        output = self.base / "registry-v1.json"
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(generate.main([str(pack)]), 0)
-            first = (pack / "registry-v1.json").read_bytes()
-            self.assertEqual(generate.main([str(pack)]), 0)
-        self.assertEqual((pack / "registry-v1.json").read_bytes(), first)
+            self.assertEqual(generate.main([str(pack), "--output", str(output)]), 0)
+            first = output.read_bytes()
+            self.assertEqual(generate.main([str(pack), "--output", str(output)]), 0)
+        self.assertEqual(output.read_bytes(), first)
         self.assertEqual(first.decode("utf-8"), GOLDEN_REGISTRY)
+        self.assertFalse((pack / "registry-v1.json").exists())
 
     def test_the_digest_changes_when_the_pack_changes(self) -> None:
         counter = iter(range(100))
@@ -626,14 +628,12 @@ class CommandLineTests(PackCase):
             code = generate.main(list(argv))
         return code, out.getvalue(), err.getvalue()
 
-    def test_writes_registry_v1_json_into_the_pack_by_default(self) -> None:
+    def test_default_output_is_canonical_json_on_stdout(self) -> None:
         pack = self.make_pack(GOLDEN_FILES)
         code, out, _ = self.run_main(str(pack))
         self.assertEqual(code, 0)
-        self.assertIn("registry-v1.json", out)
-        self.assertEqual(
-            (pack / "registry-v1.json").read_bytes(), GOLDEN_REGISTRY.encode("utf-8")
-        )
+        self.assertEqual(out, GOLDEN_REGISTRY)
+        self.assertFalse((pack / "registry-v1.json").exists())
 
     def test_output_flag_writes_elsewhere(self) -> None:
         pack = self.make_pack(GOLDEN_FILES)
@@ -641,6 +641,14 @@ class CommandLineTests(PackCase):
         code, _, _ = self.run_main(str(pack), "--output", str(target))
         self.assertEqual(code, 0)
         self.assertEqual(target.read_bytes(), GOLDEN_REGISTRY.encode("utf-8"))
+        self.assertFalse((pack / "registry-v1.json").exists())
+
+    def test_output_inside_the_pack_is_rejected(self) -> None:
+        pack = self.make_pack(GOLDEN_FILES)
+        code, out, err = self.run_main(str(pack), "--output", str(pack / "registry-v1.json"))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("registry output must be outside the pack directory", err)
         self.assertFalse((pack / "registry-v1.json").exists())
 
     def test_an_invalid_pack_exits_nonzero_and_writes_nothing(self) -> None:

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check that pull requests modifying fixtures, schemas, or tools include a CHANGELOG entry.
+"""Check that pull requests modifying fixtures, schemas, or tools add a changelog fragment.
 
 Rule [F-055]:
-A changelog entry (CHANGELOG.md) is required under '## [Unreleased]' whenever a pull
-request modifies governed files:
+A new fragment under ``changelog.d/(common|protocol-NN)/`` is required whenever
+a pull request modifies governed files:
   - Protocol packs (`protocol-*/`)
   - Schemas (`schemas/`)
   - Tools/scripts (`tools/`)
@@ -13,7 +13,7 @@ Exemptions:
     or workflow/CI files (`.github/`).
   - Pull requests with the explicit opt-out label `no-changelog` (via GitHub event
     payload, PR_LABELS env var, or --label flag).
-  - Pull requests where `CHANGELOG.md` itself is modified.
+  - The historical root `CHANGELOG.md` does not satisfy the fragment check.
 
 Standard library only.
 """
@@ -73,9 +73,12 @@ def normalize_path(path: str | Path, repo_root: Path | None = None) -> str:
 
 
 def is_changelog_file(path: str | Path) -> bool:
-    """Check if the given path is the repository CHANGELOG.md file."""
-    norm = normalize_path(path)
-    return norm.lower() in ("changelog.md", "changelog.markdown", "changelog")
+    """Check whether *path* is a protocol or common changelog fragment."""
+    norm = normalize_path(path).lower()
+    return re.fullmatch(
+        r"changelog\.d/(?:common|protocol-[0-9]+)/[a-z0-9][a-z0-9._-]*\.md",
+        norm,
+    ) is not None
 
 
 def is_governed_path(path: str | Path) -> bool:
@@ -88,7 +91,7 @@ def is_governed_path(path: str | Path) -> bool:
     if not norm:
         return False
 
-    # The changelog file itself is not a governed fixture/tool/schema
+    # Changelog fragments are metadata, not governed fixture/tool/schema files.
     if is_changelog_file(norm):
         return False
 
@@ -204,10 +207,59 @@ def get_git_diff_files(base_ref: str, repo_root: Path | None = None) -> list[str
     raise RuntimeError(f"git diff failed for base ref '{base_ref}': {last_error}")
 
 
+def get_git_added_fragments(base_ref: str, repo_root: Path | None = None) -> list[str]:
+    """Return changelog fragments newly added relative to ``base_ref``."""
+    cwd = str(repo_root) if repo_root else os.getcwd()
+    candidates = [base_ref]
+    if base_ref.startswith("origin/"):
+        candidates.append(base_ref[len("origin/") :])
+    candidates.extend(["FETCH_HEAD", "origin/main", "main"])
+    last_error = ""
+    for ref in candidates:
+        try:
+            resolved = subprocess.run(
+                ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            raise RuntimeError("git executable not found in PATH") from None
+        if resolved.returncode:
+            last_error = resolved.stderr.strip()
+            continue
+        for diff_args in ([f"{ref}...HEAD"], [ref, "HEAD"]):
+            command = [
+                "git",
+                "diff",
+                "--diff-filter=A",
+                "--name-only",
+                *diff_args,
+                "--",
+                "changelog.d",
+            ]
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except FileNotFoundError:
+                raise RuntimeError("git executable not found in PATH") from None
+            if result.returncode == 0:
+                return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            last_error = result.stderr.strip()
+    raise RuntimeError(f"git diff failed for added fragments against '{base_ref}': {last_error}")
+
+
 def check_changelog(
     changed_files: Sequence[str | Path],
     labels: Sequence[str] = (),
     repo_root: Path | None = None,
+    added_fragments: Sequence[str | Path] | None = None,
 ) -> ChangelogCheckResult:
     """Evaluate whether changed files satisfy the changelog requirement [F-055]."""
     normalized_files: list[str] = []
@@ -217,7 +269,24 @@ def check_changelog(
             if norm and norm not in normalized_files:
                 normalized_files.append(norm)
 
-    has_changelog = any(is_changelog_file(f) for f in normalized_files)
+    added_set = (
+        {normalize_path(fragment, repo_root=repo_root) for fragment in added_fragments}
+        if added_fragments is not None
+        else None
+    )
+    fragments = [path for path in normalized_files if is_changelog_file(path)]
+    if added_set is not None:
+        fragments = [path for path in fragments if path in added_set]
+    empty_fragments: list[str] = []
+    if repo_root is not None:
+        for fragment in fragments:
+            fragment_path = Path(repo_root) / fragment
+            try:
+                if not fragment_path.is_file() or not fragment_path.read_text(encoding="utf-8").strip():
+                    empty_fragments.append(fragment)
+            except (OSError, UnicodeDecodeError):
+                empty_fragments.append(fragment)
+    has_changelog = bool(fragments) and not empty_fragments
     governed_files = [f for f in normalized_files if is_governed_path(f)]
 
     # Normalized labels
@@ -225,7 +294,7 @@ def check_changelog(
     has_opt_out = OPT_OUT_LABEL in label_set
 
     if not governed_files:
-        msg = "OK: No governed files (fixtures, schemas, tools) were modified; CHANGELOG.md is not required."
+        msg = "OK: No governed files (fixtures, schemas, tools) were modified; a changelog fragment is not required."
         return ChangelogCheckResult(
             passed=True,
             governed_files=[],
@@ -236,13 +305,26 @@ def check_changelog(
 
     if has_changelog:
         msg = (
-            f"OK: Governed file(s) were modified, and CHANGELOG.md has been updated "
+            f"OK: Governed file(s) were modified, and a changelog fragment was added "
             f"({len(governed_files)} governed file(s) changed)."
         )
         return ChangelogCheckResult(
             passed=True,
             governed_files=governed_files,
             has_changelog=True,
+            has_opt_out=has_opt_out,
+            message=msg,
+        )
+
+    if empty_fragments:
+        msg = (
+            "ERROR: changelog fragment(s) must contain non-empty UTF-8 Markdown: "
+            + ", ".join(empty_fragments)
+        )
+        return ChangelogCheckResult(
+            passed=False,
+            governed_files=governed_files,
+            has_changelog=False,
             has_opt_out=has_opt_out,
             message=msg,
         )
@@ -264,11 +346,11 @@ def check_changelog(
     file_list_str = "".join(f"  - {f}\n" for f in governed_files)
     msg = (
         f"ERROR: [{RULE_ID}] Pull requests modifying fixtures ('protocol-*/'), schemas ('schemas/'), "
-        f"or tools ('tools/') require a CHANGELOG entry under '## [Unreleased]'.\n\n"
-        f"The following {len(governed_files)} governed file(s) were changed without an update to CHANGELOG.md:\n"
+        f"or tools ('tools/') require a uniquely named changelog fragment under 'changelog.d/'.\n\n"
+        f"The following {len(governed_files)} governed file(s) were changed without a fragment:\n"
         f"{file_list_str}\n"
         f"To resolve this failure, please either:\n"
-        f"  1. Add an entry describing your changes to CHANGELOG.md under '## [Unreleased]'.\n"
+        f"  1. Add a non-empty Markdown fragment under changelog.d/protocol-NN/ or changelog.d/common/.\n"
         f"  2. Apply the '{OPT_OUT_LABEL}' label to this pull request if exempt "
         f"(e.g., internal refactoring or no user-facing changes)."
     )
@@ -284,7 +366,7 @@ def check_changelog(
 def build_markdown_summary(result: ChangelogCheckResult) -> str:
     """Generate a markdown report suitable for GitHub Step Summary."""
     status_icon = "✅" if result.passed else "❌"
-    title = f"### {status_icon} CHANGELOG Validation [{RULE_ID}]"
+    title = f"### {status_icon} Changelog fragment validation [{RULE_ID}]"
     lines = [title, ""]
     if result.passed:
         lines.append("**Status:** PASSED")
@@ -292,7 +374,7 @@ def build_markdown_summary(result: ChangelogCheckResult) -> str:
     else:
         lines.append("**Status:** FAILED")
         lines.append(
-            "\nA CHANGELOG entry is required for pull requests that change fixtures, schemas, or tools."
+            "\nA changelog fragment is required for pull requests that change fixtures, schemas, or tools."
         )
         lines.append("\n**Governed files modified:**")
         for f in result.governed_files:
@@ -305,7 +387,7 @@ def build_markdown_summary(result: ChangelogCheckResult) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Verify that PRs modifying fixtures, schemas, or tools include a CHANGELOG.md entry [F-055]."
+        description="Verify that PRs modifying fixtures, schemas, or tools add a changelog fragment [F-055]."
     )
     parser.add_argument(
         "files",
@@ -378,6 +460,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Collect changed files
     changed_files: list[str] = []
+    added_fragments: list[str] | None = None
     if args.flag_files:
         changed_files.extend(args.flag_files)
     if args.files:
@@ -387,6 +470,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             diff_files = get_git_diff_files(args.base, repo_root=args.repo_root)
             changed_files.extend(diff_files)
+            added_fragments = get_git_added_fragments(args.base, repo_root=args.repo_root)
         except (RuntimeError, subprocess.SubprocessError, subprocess.CalledProcessError) as e:
             print(f"Error determining changed files via git: {e}", file=sys.stderr)
             return 2
@@ -417,7 +501,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = check_changelog(
         changed_files=changed_files,
         labels=list(all_labels),
-        repo_root=args.repo_root,
+        repo_root=args.repo_root or Path.cwd(),
+        added_fragments=added_fragments,
     )
 
     # Summary file if requested
