@@ -26,18 +26,15 @@ Three jobs, beyond re-deriving the digests:
    is built so that byte order and component-wise order disagree, so an
    implementation that sorts path *components* (for example Rust's ``PathBuf``
    ordering) produces a different digest.
-3. Keep the vectors out of the consumable corpus: they are not fixtures, are
-   not counted in README.md's badge, and must not collide with any id the
-   protocol packs use.
+3. Keep the vectors out of the consumable corpus: they are not fixtures and
+   must not collide with any id the protocol packs use.
 
 Run with: python3 -m unittest tests/test_cf02_vectors.py
 """
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import importlib.util
-import io
 import json
 import shutil
 import sys
@@ -97,7 +94,6 @@ def _load(name: str, path: Path):
 generate = _load("cf02_generate", REPO_ROOT / "tools" / "registry" / "generate.py")
 validate = _load("cf02_validate", REPO_ROOT / "tools" / "validate" / "validate.py")
 lite = _load("cf02_jsonschema_lite", REPO_ROOT / "tools" / "validate" / "jsonschema_lite.py")
-badge = _load("cf02_badge", REPO_ROOT / "tools" / "badge" / "badge.py")
 
 
 # ---------------------------------------------------------------- the contract
@@ -826,20 +822,16 @@ class IsolationTests(unittest.TestCase):
     def test_vectors_are_outside_every_scan_root(self) -> None:
         # Both discovery paths glob `protocol-*/`. If either ever widened to the
         # whole repository, these packs would be validated as fixtures and
-        # counted in the badge.
+        # listed as pack fixtures.
         self.assertTrue(VECTORS_DIR.is_dir())
         self.assertFalse(str(VECTORS_DIR.relative_to(REPO_ROOT)).startswith("protocol-"))
-        self.assertEqual(badge.pack_roots(REPO_ROOT), self.packs)
         for pack in self.packs:
             self.assertNotIn(pack, VECTORS_DIR.parents)
 
-    def test_the_fixture_count_badge_is_unaffected(self) -> None:
-        self.assertEqual(
-            badge.count_fixtures(REPO_ROOT),
-            sum(len(validate.find_fixture_files(pack)) for pack in self.packs),
-        )
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(badge.main(["--check"]), 0)
+    def test_fixture_discovery_has_no_global_readme_count_requirement(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertNotIn("fixtures-badge:start", readme)
+        self.assertNotIn("fixtures-badge:end", readme)
 
     def test_the_shipped_packs_still_validate(self) -> None:
         for pack in self.packs:

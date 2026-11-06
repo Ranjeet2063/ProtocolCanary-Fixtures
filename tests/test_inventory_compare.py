@@ -31,7 +31,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPARE_PATH = REPO_ROOT / "tools" / "inventory" / "compare.py"
-PROTOCOL29_REGISTRY = REPO_ROOT / "protocol-29" / "registry-v1.json"
+from tools.registry import generate as registry_generate
 
 _spec = importlib.util.spec_from_file_location("inventory_compare", COMPARE_PATH)
 compare = importlib.util.module_from_spec(_spec)
@@ -397,7 +397,7 @@ class RegistryValidationTests(unittest.TestCase):
         self.assertEqual(self.problems("registry"), ["a registry must be a JSON object"])
 
     def test_an_empty_fixtures_list_is_the_documented_empty_baseline(self) -> None:
-        # protocol-29/registry-v1.json ships with `fixtures: []`; the schema's
+        # An empty source pack can generate `fixtures: []`; the schema's
         # minItems floor cannot express that exception, so it is relaxed here.
         self.assertEqual(self.problems(registry([])), [])
 
@@ -724,11 +724,15 @@ class CommandLineTests(unittest.TestCase):
 
 
 class EmptyBaselineTests(unittest.TestCase):
-    """The committed Protocol 29 registry is compared with engine inventories."""
+    """A generated Protocol 29 registry is compared with engine inventories."""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="inventory-empty-"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.registry_path = self.tmp / "protocol-29-registry-v1.json"
+        self.registry_path.write_text(
+            registry_generate.generate(REPO_ROOT / "protocol-29"), encoding="utf-8"
+        )
 
     def run_tool(self, *args: str) -> tuple[int, str, str]:
         out = io.StringIO()
@@ -742,9 +746,9 @@ class EmptyBaselineTests(unittest.TestCase):
             self.tmp / "inventory.json", inventory([], protocol=protocol)
         )
 
-    def test_empty_inventory_reports_fixture_in_committed_registry(self) -> None:
+    def test_empty_inventory_reports_fixture_in_generated_registry(self) -> None:
         code, out, _ = self.run_tool(
-            str(self.empty_inventory()), str(PROTOCOL29_REGISTRY)
+            str(self.empty_inventory()), str(self.registry_path)
         )
         self.assertEqual(code, 1)
         self.assertIn("missing from the engine inventory (1)", out)
@@ -758,7 +762,7 @@ class EmptyBaselineTests(unittest.TestCase):
                 protocol=29,
             ),
         )
-        code, out, _ = self.run_tool(str(path), str(PROTOCOL29_REGISTRY))
+        code, out, _ = self.run_tool(str(path), str(self.registry_path))
         self.assertEqual(code, 1)
         self.assertIn("extra in the engine inventory (1)", out)
         self.assertIn("p29-rpc-health", out)

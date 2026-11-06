@@ -134,9 +134,8 @@ tests it directly.
 
 ## How these files relate to the rest of the repository
 
-They are **not fixtures**. `tools/validate/validate.py` and
-`tools/badge/badge.py` both scope discovery to `protocol-*/`, so nothing here
-is validated as a fixture, counted in README.md's badge, or loaded by the
+They are **not fixtures**. `tools/validate/validate.py` scopes discovery to
+`protocol-*/`, so nothing here is validated as a fixture or loaded by the
 engine unless someone points it at this directory deliberately. The pack files
 are nonetheless complete, loader-valid fixtures — a conformance pack that the
 loader would reject could not stand in for one — and the test suite asserts

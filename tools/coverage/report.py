@@ -60,9 +60,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The validator owns the capability vocabulary; load it exactly the way
-# tools/badge/badge.py does, so this tool counts by the same rules the
-# validator validates with instead of duplicating them here.
+# The validator owns pack discovery; use its pack roots so coverage summaries
+# describe the same source packs the validator checks.
 _VALIDATE_PATH = Path(__file__).resolve().parents[1] / "validate" / "validate.py"
 _spec = importlib.util.spec_from_file_location("validate", _VALIDATE_PATH)
 assert _spec is not None and _spec.loader is not None

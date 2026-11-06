@@ -60,33 +60,12 @@ jobs:
         # protocol-28`.
         run: python3 tools/validate/validate.py --evidence protocol-28/evidence/records
 
-      - name: Fixtures badge is current
-        # README.md's fixture-count badge is generated from the fixture tree
-        # by tools/badge/badge.py. Fail if a fixture was added or removed
-        # without regenerating it, so the count cannot silently drift.
-        run: python3 tools/badge/badge.py --check
-
-      - name: check-registry
-        # Each pack's registry-v1.json is generated from the pack by
-        # tools/registry/generate.py (CF-02, issue #269). Regenerate both
-        # committed registries and fail if the result differs from what is
-        # committed: a fixture or payload edited without rerunning the
-        # generator shows up as a changed sha256, and `git diff --exit-code`
-        # prints that diff before exiting non-zero, so the log names the stale
-        # entries. Both release candidate packs must contain at least one real
-        # fixture; an empty Protocol 29 baseline cannot pass registry validation.
-        #
-        # `git add --intent-to-add` runs first so a registry file that a
-        # commit deleted (or any not-yet-tracked registry) is shown by
-        # `git diff` as an added file instead of being invisible as untracked.
-        # It only records the path in the local index; nothing is committed or
-        # pushed. Runs on every push and pull request, like the steps above.
-        run: |
-          python3 tools/registry/generate.py protocol-28
-          python3 tools/registry/generate.py protocol-29
-          python3 tools/registry/generate.py protocol-30
-          git add --intent-to-add protocol-28/registry-v1.json protocol-29/registry-v1.json protocol-30/registry-v1.json
-          git diff --exit-code -- protocol-28/registry-v1.json protocol-29/registry-v1.json protocol-30/registry-v1.json
+      - name: Generated registries are deterministic and match their packs
+        # Both outputs stay under the runner's temporary directory. The
+        # generator validates the unchanged registry-v1 schema; the validator
+        # checks every fixture, payload, path and hash without changing the
+        # contributor checkout.
+        run: python3 tools/registry/check_all.py protocol-28 protocol-29 protocol-30
 
       - name: Repository tests
         run: python3 -u -m unittest discover tests -v
@@ -137,11 +116,8 @@ jobs:
         # protocol-28`.
         run: python3 tools/validate/validate.py --evidence protocol-28/evidence/records
 
-      - name: Fixtures badge is current
-        # README.md's fixture-count badge is generated from the fixture tree
-        # by tools/badge/badge.py. Fail if a fixture was added or removed
-        # without regenerating it, so the count cannot silently drift.
-        run: python3 tools/badge/badge.py --check
+      - name: Generated registries are deterministic and match their packs
+        run: python3 tools/registry/check_all.py protocol-28 protocol-29 protocol-30
 
       - name: Repository tests
         run: python3 -u -m unittest discover tests -v

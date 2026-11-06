@@ -24,13 +24,21 @@ To add one:
   assertion vocabulary. Use `python3 tools/scaffold/new_fixture.py` to generate
   a skeleton template with explicit `TODO` placeholders.
 - **Check it** — run `make validate` (or `python3 tools/validate/validate.py` directly).
-- **Document, test & refresh it** — update the relevant `docs/protocol-NN.md`
-  table (and the pack's `README.md` for a new CAP or surface), run
-  `make test` (or `python3 -m unittest discover tests` directly), then run
-  `make badge` so README.md's fixture-count badge reflects the new fixture.
-- **Cover the pack** — if these are the first fixtures in a protocol pack, add
-  that pack's dedicated `tests/test_pack_protocol_NN.py` file in the same
-  change (see "Pack-level test files" below).
+- **Keep the edit isolated** — give the fixture, payload, evidence record,
+  focused test and changelog fragment unique names. A fixture contribution
+  does not update a registry, root README count, shared `CHANGELOG.md`, pack
+  README table or central exact-fixture inventory.
+- **Test it** — add an offline focused test such as
+  `tests/test_fixture_<fixture-id>.py`, then run `make check` (or the
+  individual commands below). Keep protocol-pack baseline tests focused on
+  known required fixtures; do not add new exact pack-size assertions.
+- **Document it** — shared protocol tables and pack README files are curated
+  reference material. Maintainers update them separately when useful; they are
+  not required edits for an independent fixture contribution.
+- **Add a changelog fragment** — create a uniquely named file under
+  `changelog.d/protocol-NN/` (or `changelog.d/common/` for repository-wide
+  tooling). CI checks the fragment, and release notes are generated from
+  fragments without editing the shared changelog.
 
 ## Recording verification dates
 
@@ -112,61 +120,48 @@ near a day boundary ambiguous by up to a day, defeating that purpose.
    fails CI rather than passing with a printed advisory. Add
    `--format json` for the same run as a single JSON document on stdout
    (see [README.md](README.md#validation)); the exit codes are unchanged.
-7. **Add/update documentation**: the relevant `docs/protocol-NN.md` table
-   and, if you added a new CAP or surface, the pack's `README.md`.
-8. **Run the repository tests**: `make test` — or
-   `python3 -m unittest discover tests` directly.
-9. **Refresh the fixture-count badge** in `README.md`: `make badge` — or
-   `python3 tools/badge/badge.py` directly. CI runs
-   `python3 tools/badge/badge.py --check` and fails if the committed badge
-   no longer matches the fixture tree (see
-   [README.md](README.md#fixtures-badge)).
-10. **If you populated a previously empty pack**, add that pack's
-    `tests/test_pack_protocol_NN.py` in this same change — see
-    "Pack-level test files" below. A pack-level test is *not* a substitute for
-    any of steps 6-9, and `tests/test_validate.py` does not cover it.
+7. **Add an isolated focused test** in a uniquely named module, for example
+   `tests/test_fixture_p30_xdr_example.py`. Do not update a central test file
+   with an exact fixture count or complete ID inventory for an ordinary
+   fixture addition.
+8. **Add a changelog fragment** such as
+   `changelog.d/protocol-30/p30-xdr-example.md`. Write a short Markdown bullet
+   describing the independently reviewable change. The fragment filename must
+   be unique; do not edit `CHANGELOG.md`.
+9. **Run the repository checks**: `make check` — or run `make validate`,
+   `make registry-check`, and `make test` individually. Registry outputs are
+   generated into temporary locations and are never committed in the pack.
 
-Before pushing, `make check` runs all of the above in one command, in
-the same order CI (`.github/workflows/validate.yml`) runs them.
+For a new structural evidence record, generate records into a temporary
+directory and copy only the file named for the new fixture ID into
+`protocol-NN/evidence/records/`. The generator checks the pack but its default
+output includes every fixture; do not stage or refresh unrelated records as
+part of an independent fixture contribution. Protocol 29 live records and
+Protocol 30 identity records still follow their existing evidence workflows.
+
+Before pushing, `make check` runs structural validation, deterministic
+temporary-registry validation and the test suite in the same order CI
+(`.github/workflows/validate.yml`) runs them. Pull request CI also requires a
+new changelog fragment when governed files change.
 
 > **Note**: Do not add a `manifest.toml` or similar discovery/enumeration file. The loader recursively treats every `*.toml` file under `--fixtures-dir` as a fixture, so a manifest `.toml` file would be mis-parsed as a malformed fixture and fail the run (see [README.md](README.md#repository-relationship)).
 
-## Pack-level test files
+## Focused fixture tests and pack invariants
 
-Every populated protocol pack ships with a dedicated pack-level test file,
-`tests/test_pack_protocol_NN.py`, next to the generic `tests/test_validate.py`.
-[`tests/test_pack_protocol_28.py`](tests/test_pack_protocol_28.py) is the
-existing example: a structural, offline suite (no network, no fixture
-execution) asserting that the pack matches its own documented inventory, for
-example that
+Each contribution should add a focused offline test in its own uniquely named
+module. Tests for a new fixture should check its specific parsing, bytes,
+evidence binding or independent codec behavior. They must use test-only data
+when they exercise synthetic inputs and must not present synthetic inputs as
+protocol conformance evidence.
 
-- every fixture under `protocol-NN/` targets `protocol = NN` and carries a
-  `source_reference`;
-- the set of fixture IDs per surface matches the pack's documented inventory
-  exactly;
-- fixture IDs named in the `## [Unreleased]` section of `CHANGELOG.md` still
-  exist, or are explicitly marked removed/deprecated;
-- the pack's own documented invariants hold (for protocol-28, the "no fixture
-  claims CAP-0086" gap guard, and the "protocol-27 is still intentionally
-  empty" policy check).
-
-This is separate from `tests/test_validate.py`, which only proves the generic
-format rules. The validator cannot know which fixtures a given pack is
-*supposed* to contain — the pack-level file is what keeps a pack's
-`docs/protocol-NN.md`, its `README.md`, `CHANGELOG.md`, and its actual
-`protocol-NN/` directory from drifting apart. (The "Protocol version range"
-note in the [Fixture schema](#fixture-schema) section covers the related case
-of a mistyped `protocol` value passing structural validation.)
-
-**When you populate a new protocol pack** — for example
-[`protocol-27/README.md`](protocol-27/README.md), which anticipates exactly
-this future change — add the equivalent `tests/test_pack_protocol_NN.py` in
-the same change that adds the pack's first fixtures. Model it on the
-protocol-28 file: replace `EXPECTED_IDS_BY_SURFACE` with your pack's verified
-inventory, assert `protocol = NN` for every fixture, and drop the invariants
-that only make sense for a different or empty pack. No workflow change is
-needed — CI already discovers the file through
-`python3 -m unittest discover tests`.
+Existing pack tests continue to protect required baseline fixtures and
+protocol-specific release gates. They may require a known fixture to remain
+present, but ordinary fixture contributions must not edit a shared test file
+to expand an exact count or complete inventory. Pack README tables and
+`docs/protocol-NN.md` tables are curated, non-exhaustive reference examples;
+maintainers may update them separately. This leaves duplicate-ID checks,
+schema validation, evidence checks, pack limits and release assertions in
+force without making every addition edit the same files.
 
 No fixture should be merged solely because it makes some consumer's CI
 green. If you cannot pin down the exact expected wire representation or
@@ -423,7 +418,7 @@ and do not count toward these limits during validation.
 
 Do not silently delete a fixture that is still referenced by a released
 `Protocol-Canary` version's tests or documentation. Mark it deprecated in
-its header comment with the reason, note it in `CHANGELOG.md`, and remove
+its header comment with the reason, add a changelog fragment, and remove
 it in a later, separate change once nothing depends on it.
 
 Note that deprecation is communicated **only** via this header comment
@@ -449,44 +444,40 @@ Quick reference for what contributors hit most often. Each line is the error as
 | `unexpected key(s) '...' in 'expect'; canary-soroban accepts only ['kind', 'message_contains']` | Unlike the top level of a fixture, `[expect]` is closed: `canary-soroban` rejects an unknown key there. Usually a typo (`message_contain`) or a field that belongs at the top level. |
 | `expect.message_contains must be a string, got ...` / `expect.message_contains must not be empty; ...` | The loader reads the field with `toml::Value::as_str`, so a non-string is silently dropped and an empty string matches every message — either way the fixture asserts less than it appears to. Quote the needle, or omit the key entirely to assert only that the simulation fails. |
 | `field 'expected_base64' is only allowed for kind 'encode-equals', not 'roundtrip'` | `expected_base64` states the expected encoding, and only an `encode-equals` fixture has one; the loader rejects the field for every other kind. Use `kind = "encode-equals"`, or drop the field. |
-| `README.md's fixtures badge is stale; run ...` | You added or removed a `*.toml`, so the fixture count in README.md is now wrong. Run `make badge` and commit the result. |
-| `git diff --exit-code` shows `registry-v1.json` as changed (CI step `check-registry`) | You changed a fixture or payload without regenerating the pack's registry manifest. Run `python3 tools/registry/generate.py protocol-28` (or, for an empty baseline, `python3 tools/registry/generate.py protocol-29 --allow-empty --protocol 29`) and commit the regenerated `registry-v1.json`. |
+| `registry output must be outside the pack directory` | Registry files are generated into temporary locations and are not fixture source files. Use `python3 tools/registry/generate.py protocol-30 --output "$TMPDIR/registry.json"` or `--stdout`; do not add a registry to the pack. |
+| The generated registries differ between runs | Check for files changing during generation or nondeterministic generator behavior. CI requires two isolated outputs to be byte-identical and validates the registry against the current fixtures and payloads. |
+| Need an empty registry example | Protocol 27 is currently an intentionally empty pack. To inspect its schema-valid empty registry, run `python3 tools/registry/generate.py protocol-27 --allow-empty --protocol 27 --stdout`. This command does not add or verify any Protocol 27 fixture behavior. |
 | `missing required field '...'` with no obvious cause | Historically a typo'd duplicate of the intended field (e.g. `soure_reference`). Unknown keys are now rejected outright and named — see [Unknown top-level fields](#unknown-top-level-fields). |
 
-`make check` runs these in CI's order (`validate` → `badge-check` → `test`) and
+`make check` runs these in CI's order (`validate` → `registry-check` → `test`) and
 stops at the first failure, so fix and re-run after each change rather than
 chasing several reported errors at once.
 
-## Updating CHANGELOG.md
+## Changelog fragments
 
-Every user-visible change — a new fixture, a validator behavior change, new
-tooling — gets an entry under `CHANGELOG.md`'s `## [Unreleased]` section in
-the same pull request that makes the change.
-
-Each entry must include a link to the pull request that introduced it, so a
-reader can jump straight from the changelog line to the review discussion
-and the diff:
-
-```markdown
-- `p28-xdr-example` — what the fixture checks.
-  ([PR #123](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/123))
-```
-
-If a change is pushed directly to `main` without a pull request, link the
-introducing commit instead:
+The root `CHANGELOG.md` retains the historical shared entries that predate
+this workflow. New changes use one uniquely named fragment per contribution,
+so separate PRs do not edit the same file. Use a path under the affected pack,
+for example `changelog.d/protocol-30/p30-xdr-example.md`; use
+`changelog.d/common/<unique-slug>.md` for a repository-wide tooling change.
+The fragment contains a short Markdown bullet, for example:
 
 ```markdown
-- Something else. ([abc1234](https://github.com/StellarCanary/ProtocolCanary-Fixtures/commit/abc1234))
+- Add an offline fixture for the independently verified XDR edge case.
 ```
 
-A changelog entry without one of these links is not ready for review.
+Do not include an unassigned PR number. The GitHub PR and commit provide the
+review provenance. The release workflow sorts the fragments by UTF-8 path and
+generates a deterministic versioned release changelog asset. Fragments are
+additive and remain in the repository after release; contributors do not
+rewrite or remove earlier entries.
 
 ### Automated CHANGELOG validation (rule [F-055])
 
-Pull request CI validates that a changelog entry is present whenever a pull
-request modifies governed files:
+Pull request CI validates that a new changelog fragment is present whenever a
+pull request modifies governed files:
 
-- **Governed paths** requiring an entry under `## [Unreleased]`:
+- **Governed paths** requiring a fragment:
   - Protocol packs (`protocol-*/`)
   - Schemas (`schemas/`)
   - Tools and scripts (`tools/`)
@@ -496,8 +487,9 @@ request modifies governed files:
   - CI workflows (`.github/`)
   - Repository configuration (`Makefile`, `.gitignore`, `.gitattributes`)
 
-If a pull request modifies governed files without modifying `CHANGELOG.md`, the
-pull request CI job will fail.
+If a pull request modifies governed files without adding a uniquely named
+fragment, the pull request CI job will fail. Editing `CHANGELOG.md` alone does
+not satisfy this check.
 
 #### Opting out with the `no-changelog` label
 
@@ -517,15 +509,14 @@ PR:
 python3 tools/validate/check_changelog.py --base origin/main
 
 # Or check specific changed files:
-python3 tools/validate/check_changelog.py protocol-28/xdr/fixture.toml CHANGELOG.md
+python3 tools/validate/check_changelog.py protocol-28/xdr/fixture.toml \
+  changelog.d/protocol-28/p28-xdr-example.md
 
 # Or via make:
 make check-changelog
 ```
 
-*(Note: CI does not require the changelog entry to include the PR number at check
-time, since the PR number is not known before the pull request is opened. You can
-add the link with the assigned PR number before merge.)*
+CI requires the fragment filename to be unique and its content to be non-empty.
 
 ## Development setup
 
@@ -535,8 +526,6 @@ Python 3.11+ standard library (`tomllib`), so there is nothing to install.
 For convenience, a `Makefile` wraps the commands CI runs:
 
 - `make validate` — structural fixture validation.
-- `make badge` — regenerates README.md's fixture-count badge.
-- `make badge-check` — fails if that badge is stale.
 - `make test` — the repository test suite.
 - `make check-changelog` — verify CHANGELOG entry for changed files.
 - `make check-links` — check fixture source reference links across all packs.
@@ -610,8 +599,8 @@ binary because CPython 3.11.10+ is in source-only security-fix status and
 3.11.16).
 
 Each matrix cell runs the same validation suite as the primary job:
-structural fixture validation, verification record checks, fixture-count badge
-currency, and the unit test suite.
+structural fixture validation, generated-registry checks, verification record
+checks, and the unit test suite.
 
 This matrix ensures that fixtures, schemas, tooling (`tools/`), and tests
 remain strictly portable across operating systems (normalizing paths with

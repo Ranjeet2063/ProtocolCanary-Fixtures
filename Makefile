@@ -2,16 +2,17 @@
 #
 # Targets:
 #   make validate     - structural fixture validation (tools/validate/validate.py)
-#   make badge        - regenerate README.md's fixture-count badge (tools/badge/badge.py)
-#   make badge-check  - fail if that badge is stale (what CI runs)
 #   make test         - repository test suite (unittest discover tests)
 #   make check-changelog - verify CHANGELOG entry for changed files (tools/validate/check_changelog.py)
 #   make check-links  - check fixture source reference links (tools/validate/check_source_links.py)
 #   make coverage     - test suite under branch coverage of tools/, failing below
 #                       .coveragerc's fail_under (what CI's coverage job runs);
 #                       needs the dev dependency `pip install coverage==7.16.2`
-#   make registry     - write PACK/registry-v1.json (tools/registry/generate.py);
-#                       PACK defaults to protocol-28. Not part of `make check`.
+#   make registry     - print PACK's canonical registry, or write it outside
+#                       the pack with OUTPUT=PATH (tools/registry/generate.py).
+#                       PACK defaults to protocol-28.
+#   make registry-check - generate twice outside the packs and validate the
+#                         resulting registries (what CI runs)
 #   make records      - write PACK/evidence/records/*.json, the CF-04 structural
 #                       verification records (tools/evidence/record_structural.py);
 #                       PACK defaults to protocol-28. Run it after a fixture
@@ -31,7 +32,7 @@ OLD ?=
 NEW ?=
 FORMAT ?= text
 
-.PHONY: validate badge badge-check test check-changelog check-links coverage registry records registry-diff pack check
+.PHONY: validate test check-changelog check-links coverage registry registry-check records registry-diff pack check
 
 validate:
 	python3 tools/validate/validate.py
@@ -42,12 +43,6 @@ check-changelog:
 check-links:
 	python3 tools/validate/check_source_links.py
 
-badge:
-	python3 tools/badge/badge.py
-
-badge-check:
-	python3 tools/badge/badge.py --check
-
 test:
 	python3 -m unittest discover tests -v
 
@@ -56,7 +51,10 @@ coverage:
 	coverage report -m
 
 registry:
-	python3 tools/registry/generate.py $(PACK)
+	python3 tools/registry/generate.py $(PACK) $(if $(OUTPUT),--output "$(OUTPUT)",--stdout)
+
+registry-check:
+	python3 tools/registry/check_all.py
 
 records:
 	python3 tools/evidence/record_structural.py $(PACK)
@@ -69,4 +67,4 @@ pack:
 	@test -n "$(VERSION)" || { echo "usage: make pack VERSION=1.0.0 [PACK=protocol-28]" >&2; exit 2; }
 	python3 tools/pack/pack.py $(PACK) --version $(VERSION) --output-dir dist
 
-check: validate badge-check test
+check: validate registry-check test

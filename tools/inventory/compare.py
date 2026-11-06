@@ -37,10 +37,10 @@ their agreement with ``counts.total``. An input that cannot be compared --
 missing, not UTF-8, not JSON, wrong version, duplicated id, or a registry and
 an inventory for different protocols -- is reported and never repaired.
 
-An empty fixtures list is a legitimate answer on either side: the empty
-baseline pack (``protocol-29/registry-v1.json``) ships with ``fixtures: []``,
-which the registry schema's ``minItems: 1`` cannot express, so that one floor
-is relaxed here for an empty list only. Comparing an empty registry with a
+An empty fixtures list is a legitimate answer on either side: an intentionally
+empty protocol pack can generate ``fixtures: []``, which the registry schema's
+``minItems: 1`` cannot express, so that one floor is relaxed here for an empty
+list only. Comparing an empty registry with a
 non-empty inventory is therefore a real difference (every engine fixture is
 reported as absent from the registry), not an unusable input.
 

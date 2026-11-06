@@ -7,6 +7,10 @@ venv/
 # Release archives built by tools/pack/pack.py
 dist/
 
+# The canonical registry is generated into isolated temporary outputs and is
+# not a source-checkout file. Release archives still include registry.json.
+protocol-*/registry-v1.json
+
 # Coverage data from `coverage run` / `make coverage` (dev tool, see
 # CONTRIBUTING.md "Coverage")
 .coverage

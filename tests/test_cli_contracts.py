@@ -285,14 +285,6 @@ class CliContractTests(unittest.TestCase):
     # 5. tools/badge/badge.py
     def test_badge_cli(self) -> None:
         tool = "tools/badge/badge.py"
-        # No args (updates or confirms badge, exits 0)
-        p_noargs = self.run_tool(tool)
-        self.assertEqual(p_noargs.returncode, 0)
-
-        # --check (exits 0 on clean repo)
-        p_check = self.run_tool(tool, "--check")
-        self.assertEqual(p_check.returncode, 0)
-
         # --help prints usage and exits 0 without touching README.md
         # (issue #392; the old behaviour of ignoring --help is gone)
         readme = Path(__file__).resolve().parent.parent / "README.md"

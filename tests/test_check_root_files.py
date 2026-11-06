@@ -48,6 +48,11 @@ class TestCheckRootFiles(unittest.TestCase):
         self.assertTrue(is_allowed("protocol-30"))
         self.assertTrue(is_allowed("protocol-999"))
 
+    def test_changelog_fragment_directory_is_allowed(self) -> None:
+        """Immutable release-note fragments are a documented root directory."""
+        self.assertIn("changelog.d", DEFAULT_ALLOWLIST)
+        self.assertEqual(check_root_entries(["changelog.d/common/example.md"]), [])
+
     def test_is_allowed_rejects_stray_files(self) -> None:
         """Stray files and unexpected directories are rejected."""
         self.assertFalse(is_allowed("diff.txt"))

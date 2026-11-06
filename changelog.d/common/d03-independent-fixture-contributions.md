@@ -1,0 +1,1 @@
+- Generate canonical fixture registries in isolated CI outputs and release builds. Independent fixture contributions no longer update shared registry, README-count or changelog files.

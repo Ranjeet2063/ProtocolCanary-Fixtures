@@ -13,8 +13,8 @@ commit ``4d2cb9978127ecd1045b4cca022a4681875d0052`` -- re-read for this change,
 not carried over from an earlier audit -- and ``CONTRIBUTING.md#fixture-schema``
 forbids this repository's schema from leading that loader. So the fixtures are
 **staged** under ``tests/vectors/resource_estimation/``, a path neither
-``tools/validate/validate.py`` nor ``tools/badge/badge.py`` scans (both glob only
-``protocol-*/``), and the assertion vocabulary they use lives in
+``tools/validate/validate.py`` scans (it globs only ``protocol-*/``), and the
+assertion vocabulary they use lives in
 ``schemas/proposed/simulation-resource-estimate.expect.json``, which is
 deliberately not reachable from ``schemas/fixture-v1.schema.json``.
 
@@ -72,7 +72,6 @@ def _load(name: str, path: Path):
 
 validate = _load("validate", REPO_ROOT / "tools" / "validate" / "validate.py")
 lite = _load("jsonschema_lite", REPO_ROOT / "tools" / "validate" / "jsonschema_lite.py")
-badge = _load("badge", REPO_ROOT / "tools" / "badge" / "badge.py")
 
 PROPOSED_KIND = "simulation-resource-estimate"
 
@@ -780,21 +779,12 @@ class StagingGuardTests(unittest.TestCase):
         )
 
     def test_staged_files_are_outside_every_scan_root(self) -> None:
-        # Both validate.py's and badge.py's pack discovery glob `protocol-*/`.
-        # If either ever widened, these files would be parsed as fixtures.
+        # The validator discovers `protocol-*` packs. If that widened, these
+        # files would be parsed as fixtures.
         self.assertTrue(STAGED_DIR.is_dir())
         for pack in self.packs:
             self.assertNotIn(pack, STAGED_DIR.parents)
         self.assertFalse(str(STAGED_DIR.relative_to(REPO_ROOT)).startswith("protocol-"))
-        self.assertEqual(badge.pack_roots(REPO_ROOT), self.packs)
-
-    def test_the_fixture_count_badge_is_unaffected(self) -> None:
-        # Staged files are not fixtures, so README.md's badge must not move.
-        self.assertEqual(
-            badge.count_fixtures(REPO_ROOT),
-            sum(len(validate.find_fixture_files(pack)) for pack in self.packs),
-        )
-        self.assertEqual(badge.main(["--check"]), 0)
 
     def test_no_fixture_ids_collide_between_staged_and_shipped(self) -> None:
         # Ids must be unique repository-wide; a collision would break promotion.

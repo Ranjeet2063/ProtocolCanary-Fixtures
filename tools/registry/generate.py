@@ -36,8 +36,10 @@ until the single final write, and nothing is executed.
 Usage:
     python3 tools/registry/generate.py PACK [--output PATH | --stdout]
 
-The default output is ``PACK/registry-v1.json``. Requires Python 3.11+
-(``tomllib``) and nothing outside the standard library.
+Without an output option, writes canonical JSON to stdout. File output must be
+outside the pack, so a generated registry cannot accidentally become a shared
+fixture contribution edit. Requires Python 3.11+ (``tomllib``) and nothing
+outside the standard library.
 """
 from __future__ import annotations
 
@@ -487,7 +489,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         metavar="PATH",
-        help=f"write the registry here (default: PACK/{DEFAULT_REGISTRY_NAME})",
+        help="write the registry to this path outside the pack",
     )
     where.add_argument(
         "--stdout", action="store_true", help="print the registry instead of writing a file"
@@ -565,7 +567,7 @@ def main(argv: list[str]) -> int:
         print("FAILED: no registry written", file=sys.stderr)
         return 1
 
-    if args.stdout:
+    if args.stdout or args.output is None:
         # Bytes, so Windows' text-mode newline translation cannot turn the
         # registry's LF line endings into CRLF.
         buffer = getattr(sys.stdout, "buffer", None)
@@ -575,8 +577,16 @@ def main(argv: list[str]) -> int:
         else:
             sys.stdout.write(text)
         return 0
-    output = args.output or (args.pack / DEFAULT_REGISTRY_NAME)
+    output = args.output
     try:
+        pack_root = args.pack.resolve()
+        resolved_output = output.resolve()
+        try:
+            resolved_output.relative_to(pack_root)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("registry output must be outside the pack directory")
         scanned = scan_pack(args.pack)
         protected = collect_pack_protected_inputs(args.pack, scanned)
         paths.check_target_safety(output, protected)

@@ -1,7 +1,8 @@
 """Tests for tools/validate/validate_registry.py (F-004, issue #273).
 
-The tool cross-validates a pack's ``*.toml`` corpus against its committed
-``registry-v1.json`` (CF-02 section 6, rules 2 and 3): every fixture on disk
+The tool cross-validates a pack's ``*.toml`` corpus against an externally
+generated registry or a temporary registry generated from the source pack
+(CF-02 section 6, rules 2 and 3): every fixture on disk
 must be listed, every listed fixture and payload must exist as a regular
 file, and every recorded sha256 must equal the hash of the bytes on disk.
 The tests cover the three rejections the issue requires (orphaned fixture,
@@ -23,6 +24,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL_PATH = REPO_ROOT / "tools" / "validate" / "validate_registry.py"
@@ -33,8 +35,8 @@ assert _spec.loader is not None
 sys.modules["validate_registry"] = vr
 _spec.loader.exec_module(vr)
 
-# The tool never checks packDigest (freshness is CI's check-registry step),
-# so a syntactically valid constant is enough for every registry built here.
+# The low-level cross-validator tests deliberately use structurally valid
+# external registries. CI separately tests canonical generation and digest.
 PACK_DIGEST = "sha256:" + "a" * 64
 
 
@@ -59,14 +61,14 @@ def fixture_entry(path: str, data: bytes, payloads: dict[str, bytes] | None = No
 
 
 def write_registry(pack: Path, fixtures: list[dict], protocol: int = 28) -> Path:
-    """Write a minimal but schema-valid registry document for ``pack``."""
+    """Write a minimal but schema-valid registry outside ``pack``."""
     document = {
         "registryVersion": 1,
         "protocol": protocol,
         "fixtures": fixtures,
         "packDigest": PACK_DIGEST,
     }
-    registry = pack / "registry-v1.json"
+    registry = pack.parent / f"{pack.name}-registry-v1.json"
     registry.write_text(
         json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -89,10 +91,17 @@ class ValidateRegistryTestCase(unittest.TestCase):
         return path
 
     def run_tool(self, *args: str) -> tuple[int, str, str]:
+        effective_args = list(args)
+        if len(effective_args) == 1:
+            candidate = Path(effective_args[0]).parent / (
+                f"{Path(effective_args[0]).name}-registry-v1.json"
+            )
+            if candidate.exists():
+                effective_args.extend(["--registry", str(candidate)])
         out = io.StringIO()
         err = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = vr.main(list(args))
+            code = vr.main(effective_args)
         return code, out.getvalue(), err.getvalue()
 
     def run_subprocess(self, *args: str) -> subprocess.CompletedProcess[str]:
@@ -120,7 +129,7 @@ class MatchingPackTests(ValidateRegistryTestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(err, "")
         self.assertIn("OK: ", out)
-        self.assertIn("2 fixture(s) and 0 payload hash(es) match registry-v1.json", out)
+        self.assertIn("2 fixture(s) and 0 payload hash(es) match the generated registry", out)
 
     def test_a_matching_payload_is_hashed_and_counted(self) -> None:
         fixture = b'id = "p28-payload"\n'
@@ -138,7 +147,14 @@ class MatchingPackTests(ValidateRegistryTestCase):
     def test_a_pack_with_no_fixtures_and_no_registry_passes(self) -> None:
         code, out, err = self.run_tool(str(self.pack))
         self.assertEqual(code, 0, err)
-        self.assertIn("no fixtures and no registry-v1.json to check", out)
+        self.assertIn("no fixtures and no generated registry to check", out)
+
+    def test_invalid_fixture_content_fails_generated_registry_validation(self) -> None:
+        self.write_file("xdr/incomplete.toml", b'id = "p28-incomplete"\n')
+        code, out, err = self.run_tool(str(self.pack))
+        self.assertEqual(code, 1)
+        self.assertIn("could not generate registry", err)
+        self.assertIn("field 'surface'", err)
 
     def test_an_empty_baseline_registry_matches_an_empty_pack(self) -> None:
         # protocol-29 ships as an empty baseline: empty fixtures array,
@@ -181,25 +197,27 @@ class OrphanedFixtureTests(ValidateRegistryTestCase):
         self.assertNotIn("only.toml", err)
 
     def test_the_issue_negative_case_exits_nonzero_via_the_real_cli(self) -> None:
-        # Issue #273's negative testing: a synthetic extra fixture file on
-        # disk causes a non-zero exit code with the path of the untracked
-        # fixture in the output.
+        # Source checkouts generate their canonical registry from the full pack,
+        # so this regression passes an older external registry to exercise the
+        # stale-registry path and ensure an extra fixture is named.
         self.make_matching_pack()
+        registry = self.pack.parent / f"{self.pack.name}-registry-v1.json"
         self.write_file("xdr/synthetic.toml", b'id = "p28-synthetic"\n')
-        result = self.run_subprocess(str(self.pack))
+        result = self.run_subprocess(str(self.pack), "--registry", str(registry))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("xdr/synthetic.toml", result.stderr)
         self.assertEqual(result.stdout, "")
 
-    def test_a_pack_with_fixtures_but_no_registry_lists_them_all(self) -> None:
+    def test_an_external_registry_missing_fixtures_is_rejected(self) -> None:
         self.write_file("xdr/one.toml", b"id = 'one'")
         self.write_file("xdr/two.toml", b"id = 'two'")
+        write_registry(self.pack, [])
         code, out, err = self.run_tool(str(self.pack))
         self.assertEqual(code, 1)
-        self.assertIn("registry-v1.json: does not exist", err)
+        self.assertIn("registry-v1.json", err)
         self.assertIn("xdr/one.toml", err)
         self.assertIn("xdr/two.toml", err)
-        self.assertIn("FAILED: 3 problem(s)", err)
+        self.assertIn("fixture on disk is not listed", err)
 
 
 class MissingEntryTests(ValidateRegistryTestCase):
@@ -230,6 +248,42 @@ class MissingEntryTests(ValidateRegistryTestCase):
         self.assertIn("xdr/input.bin", err)
         self.assertIn("payload listed under", err)
         self.assertIn("is missing from the pack", err)
+
+
+class RegistryArgumentTests(ValidateRegistryTestCase):
+    def test_registry_without_any_pack_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(vr, "REPO_ROOT", Path(temp)):
+                code, out, err = self.run_tool("--registry", str(Path(temp) / "registry.json"))
+        self.assertEqual(code, 2)
+        self.assertIn("--registry requires one PACK", err)
+
+    def test_registry_with_multiple_packs_is_rejected(self) -> None:
+        other = self.tmp / "protocol-29"
+        other.mkdir()
+        code, out, err = self.run_tool(
+            str(self.pack), str(other), "--registry", str(self.tmp / "registry.json")
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("--registry can only be used with one PACK", err)
+
+    def test_temporary_registry_write_failure_is_reported(self) -> None:
+        fixture = (
+            b'id = "p28-valid"\n'
+            b"protocol = 28\n"
+            b'surface = "xdr"\n'
+            b'category = "test-only"\n'
+            b'description = "synthetic test fixture"\n'
+            b'source_reference = "test-only"\n'
+            b'type = "StellarValue"\n'
+            b'kind = "roundtrip"\n'
+            b'value_base64 = "AAAAAA=="\n'
+        )
+        self.write_file("xdr/valid.toml", fixture)
+        with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
+            code, out, err = self.run_tool(str(self.pack))
+        self.assertEqual(code, 2)
+        self.assertIn("could not write temporary registry", err)
 
 
 class HashMismatchTests(ValidateRegistryTestCase):
@@ -281,20 +335,20 @@ class UnusableInputTests(ValidateRegistryTestCase):
         self.assertIn("not a directory", err)
 
     def test_a_registry_that_is_not_json_exits_2(self) -> None:
-        (self.pack / "registry-v1.json").write_bytes(b"{not json at all")
+        registry_path_for(self.pack).write_bytes(b"{not json at all")
         code, out, err = self.run_tool(str(self.pack))
         self.assertEqual(code, 2)
         self.assertIn("error:", err)
         self.assertIn("registry-v1.json", err)
 
     def test_a_registry_that_is_not_an_object_exits_2(self) -> None:
-        (self.pack / "registry-v1.json").write_text("[]\n", encoding="utf-8")
+        registry_path_for(self.pack).write_text("[]\n", encoding="utf-8")
         code, out, err = self.run_tool(str(self.pack))
         self.assertEqual(code, 2)
         self.assertIn("usable registry", err)
 
     def test_a_registry_missing_required_keys_exits_2(self) -> None:
-        (self.pack / "registry-v1.json").write_text(
+        registry_path_for(self.pack).write_text(
             json.dumps({"fixtures": []}) + "\n", encoding="utf-8"
         )
         code, out, err = self.run_tool(str(self.pack))
@@ -311,7 +365,7 @@ class UnusableInputTests(ValidateRegistryTestCase):
             "packDigest": PACK_DIGEST,
         }
         document["fixtures"][0]["path"] = "../outside.toml"
-        (self.pack / "registry-v1.json").write_text(
+        registry_path_for(self.pack).write_text(
             json.dumps(document) + "\n", encoding="utf-8"
         )
         code, out, err = self.run_tool(str(self.pack))
@@ -319,7 +373,7 @@ class UnusableInputTests(ValidateRegistryTestCase):
         self.assertIn("'..' segment", err)
 
     def test_a_registry_path_that_is_a_directory_exits_2(self) -> None:
-        (self.pack / "registry-v1.json").mkdir()
+        registry_path_for(self.pack).mkdir()
         code, out, err = self.run_tool(str(self.pack))
         self.assertEqual(code, 2)
         self.assertTrue(
@@ -342,17 +396,14 @@ class CommandLineTests(ValidateRegistryTestCase):
         self.assertIn("usage: validate_registry.py", result.stdout)
         self.assertIn("Exit codes:", result.stdout)
 
-    def test_one_bad_pack_does_not_hide_the_other_pack_result(self) -> None:
-        good = self.tmp / "protocol-29"
-        good.mkdir()
-        write_registry(good, [], protocol=29)
-        bad = self.tmp / "protocol-99"
-        (bad / "xdr").mkdir(parents=True)
-        (bad / "xdr" / "orphan.toml").write_bytes(b"id = 'orphan'")
-        code, out, err = self.run_tool(str(good), str(bad))
-        self.assertEqual(code, 1)
-        self.assertIn("OK: ", out)
-        self.assertIn("orphan.toml", err)
+    def test_external_registry_requires_exactly_one_pack(self) -> None:
+        pack_a = self.tmp / "protocol-28"
+        pack_b = self.tmp / "protocol-29"
+        pack_b.mkdir()
+        registry = write_registry(pack_a, [], protocol=28)
+        code, out, err = self.run_tool(str(pack_a), str(pack_b), "--registry", str(registry))
+        self.assertEqual(code, 2)
+        self.assertIn("--registry can only be used with one PACK", err)
 
 
 class RepositoryPacksTests(ValidateRegistryTestCase):
@@ -360,26 +411,21 @@ class RepositoryPacksTests(ValidateRegistryTestCase):
 
     def test_default_run_checks_every_protocol_pack(self) -> None:
         code, out, err = self.run_tool()
-        # protocol-28's committed registry lands with PR #469 (issue #269);
-        # this issue does not depend on it, so assert whichever state the
-        # checkout has: with the registry every pack matches, without it the
-        # unlisted corpus is reported -- which is exactly what the tool is for.
-        if (REPO_ROOT / "protocol-28" / "registry-v1.json").exists():
-            self.assertEqual(code, 0, err)
-            self.assertIn("OK: protocol-28", out)
-        else:
-            self.assertEqual(code, 1)
-            self.assertIn("protocol-28/registry-v1.json: does not exist", err)
-            self.assertIn("protocol-28/xdr/", err)
-        # protocol-27 has neither fixtures nor a registry; protocol-29 ships
-        # as an empty baseline with a committed registry (issue #290).
+        self.assertEqual(code, 0, err)
+        self.assertIn("OK: protocol-28", out)
+        # protocol-27 has no fixtures; populated packs receive temporary
+        # generated registries from the current source tree.
         self.assertIn("OK: protocol-27", out)
         self.assertIn("OK: protocol-29", out)
 
-    def test_protocol29_matches_its_committed_baseline(self) -> None:
+    def test_protocol29_matches_its_generated_source_baseline(self) -> None:
         code, out, err = self.run_tool(str(REPO_ROOT / "protocol-29"))
         self.assertEqual(code, 0, err)
         self.assertIn("OK: protocol-29", out)
+
+
+def registry_path_for(pack: Path) -> Path:
+    return pack.parent / f"{pack.name}-registry-v1.json"
 
 
 if __name__ == "__main__":
