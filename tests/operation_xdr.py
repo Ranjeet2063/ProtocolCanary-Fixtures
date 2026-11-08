@@ -34,6 +34,7 @@ OPERATION_TYPE_PATH_PAYMENT_STRICT_SEND = 13
 OPERATION_TYPE_CLAIM_CLAIMABLE_BALANCE = 15
 OPERATION_TYPE_BEGIN_SPONSORING_FUTURE_RESERVES = 16
 OPERATION_TYPE_END_SPONSORING_FUTURE_RESERVES = 17
+OPERATION_TYPE_CLAWBACK = 19
 OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE = 20
 OPERATION_TYPE_EXTEND_FOOTPRINT_TTL = 25
 OPERATION_TYPE_RESTORE_FOOTPRINT = 26
@@ -116,6 +117,13 @@ class EndSponsoringFutureReservesOp:
 
 
 @dataclass(frozen=True)
+class ClawbackOp:
+    asset: Any
+    from_account: Any  # MuxedAccount; XDR field name is ``from``
+    amount: int  # int64
+
+
+@dataclass(frozen=True)
 class ClawbackClaimableBalanceOp:
     balance_id: ClaimableBalanceID
 
@@ -143,6 +151,7 @@ _SUPPORTED_OPERATION_TYPES = frozenset(
         OPERATION_TYPE_CLAIM_CLAIMABLE_BALANCE,
         OPERATION_TYPE_BEGIN_SPONSORING_FUTURE_RESERVES,
         OPERATION_TYPE_END_SPONSORING_FUTURE_RESERVES,
+        OPERATION_TYPE_CLAWBACK,
         OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE,
         OPERATION_TYPE_EXTEND_FOOTPRINT_TTL,
         OPERATION_TYPE_RESTORE_FOOTPRINT,
@@ -286,6 +295,12 @@ def decode_operation_body(
         return BeginSponsoringFutureReservesOp(sponsored_id=decode_account_id(reader))
     if operation_type == OPERATION_TYPE_END_SPONSORING_FUTURE_RESERVES:
         return EndSponsoringFutureReservesOp()
+    if operation_type == OPERATION_TYPE_CLAWBACK:
+        return ClawbackOp(
+            asset=decode_asset(reader),
+            from_account=decode_muxed_account(reader),
+            amount=reader.read_int64(),
+        )
     if operation_type == OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE:
         return ClawbackClaimableBalanceOp(balance_id=_decode_claimable_balance_id(reader))
     if operation_type == OPERATION_TYPE_EXTEND_FOOTPRINT_TTL:
@@ -379,6 +394,12 @@ def encode_operation_body(
         return
     if operation_type == OPERATION_TYPE_END_SPONSORING_FUTURE_RESERVES:
         _require_payload(operation_type, payload, EndSponsoringFutureReservesOp)
+        return
+    if operation_type == OPERATION_TYPE_CLAWBACK:
+        value = _require_payload(operation_type, payload, ClawbackOp)
+        encode_asset(writer, value.asset)
+        encode_muxed_account(writer, value.from_account)
+        _write_int64(writer, value.amount, "ClawbackOp.amount")
         return
     if operation_type == OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE:
         value = _require_payload(operation_type, payload, ClawbackClaimableBalanceOp)
