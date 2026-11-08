@@ -36,6 +36,7 @@ OPERATION_TYPE_BEGIN_SPONSORING_FUTURE_RESERVES = 16
 OPERATION_TYPE_END_SPONSORING_FUTURE_RESERVES = 17
 OPERATION_TYPE_CLAWBACK = 19
 OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE = 20
+OPERATION_TYPE_SET_TRUST_LINE_FLAGS = 21
 OPERATION_TYPE_EXTEND_FOOTPRINT_TTL = 25
 OPERATION_TYPE_RESTORE_FOOTPRINT = 26
 
@@ -129,6 +130,14 @@ class ClawbackClaimableBalanceOp:
 
 
 @dataclass(frozen=True)
+class SetTrustLineFlagsOp:
+    trustor: Any  # AccountID, decoded by the shared PublicKey codec
+    asset: Any  # Asset, not TrustLineAsset
+    clear_flags: int  # uint32
+    set_flags: int  # uint32
+
+
+@dataclass(frozen=True)
 class ExtendFootprintTTLOp:
     extension_type: int  # ExtensionPoint union discriminant; V0 only
     extend_to: int  # uint32
@@ -153,6 +162,7 @@ _SUPPORTED_OPERATION_TYPES = frozenset(
         OPERATION_TYPE_END_SPONSORING_FUTURE_RESERVES,
         OPERATION_TYPE_CLAWBACK,
         OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE,
+        OPERATION_TYPE_SET_TRUST_LINE_FLAGS,
         OPERATION_TYPE_EXTEND_FOOTPRINT_TTL,
         OPERATION_TYPE_RESTORE_FOOTPRINT,
     }
@@ -303,6 +313,13 @@ def decode_operation_body(
         )
     if operation_type == OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE:
         return ClawbackClaimableBalanceOp(balance_id=_decode_claimable_balance_id(reader))
+    if operation_type == OPERATION_TYPE_SET_TRUST_LINE_FLAGS:
+        return SetTrustLineFlagsOp(
+            trustor=decode_account_id(reader),
+            asset=decode_asset(reader),
+            clear_flags=reader.read_uint32(),
+            set_flags=reader.read_uint32(),
+        )
     if operation_type == OPERATION_TYPE_EXTEND_FOOTPRINT_TTL:
         return ExtendFootprintTTLOp(
             extension_type=_read_extension_point(reader),
@@ -404,6 +421,13 @@ def encode_operation_body(
     if operation_type == OPERATION_TYPE_CLAWBACK_CLAIMABLE_BALANCE:
         value = _require_payload(operation_type, payload, ClawbackClaimableBalanceOp)
         _encode_claimable_balance_id(writer, value.balance_id)
+        return
+    if operation_type == OPERATION_TYPE_SET_TRUST_LINE_FLAGS:
+        value = _require_payload(operation_type, payload, SetTrustLineFlagsOp)
+        encode_account_id(writer, value.trustor)
+        encode_asset(writer, value.asset)
+        _write_uint32(writer, value.clear_flags, "SetTrustLineFlagsOp.clearFlags")
+        _write_uint32(writer, value.set_flags, "SetTrustLineFlagsOp.setFlags")
         return
     if operation_type == OPERATION_TYPE_EXTEND_FOOTPRINT_TTL:
         value = _require_payload(operation_type, payload, ExtendFootprintTTLOp)
