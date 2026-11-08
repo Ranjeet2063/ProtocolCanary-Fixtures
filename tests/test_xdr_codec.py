@@ -238,10 +238,10 @@ class TransactionEnvelopeCodecTests(unittest.TestCase):
         self.assertIn("discriminant", str(caught.exception))
 
     def test_unsupported_operation_arm_rejected(self) -> None:
-        # OperationType 8 is ACCOUNT_MERGE, an arm the codec does not model.
+        # OperationType 3 is MANAGE_SELL_OFFER, not implemented yet.
         raw = self._fixture_bytes("p28-xdr-transaction-envelope-v0-roundtrip.toml")
         mutated = bytearray(raw)
-        mutated[80:84] = (8).to_bytes(4, "big")
+        mutated[80:84] = (3).to_bytes(4, "big")
         with self.assertRaises(xdr_codec.XdrCodecError) as caught:
             xdr_codec.decode_xdr("TransactionEnvelope", bytes(mutated))
         self.assertIn("unsupported OperationType arm", str(caught.exception))
