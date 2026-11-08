@@ -16,3 +16,5 @@ protocol-*/registry-v1.json
 .coverage
 .coverage.*
 htmlcov/
+config.bat
+node_modules
