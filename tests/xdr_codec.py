@@ -93,7 +93,12 @@ the pack does not exercise yet raises an explicit ``XdrCodecError`` that names
 the unsupported arm, so a future fixture that needs a wider codec fails loudly
 instead of being silently accepted:
 
-- ``OperationType``: ``PAYMENT`` and ``INVOKE_HOST_FUNCTION``.
+- ``OperationType``: ``CREATE_ACCOUNT``, ``PATH_PAYMENT_STRICT_RECEIVE``,
+  ``PAYMENT``, ``ACCOUNT_MERGE``, ``INFLATION``, ``MANAGE_DATA``,
+  ``BUMP_SEQUENCE``, ``PATH_PAYMENT_STRICT_SEND``, ``CLAIM_CLAIMABLE_BALANCE``,
+  ``BEGIN_SPONSORING_FUTURE_RESERVES``, ``END_SPONSORING_FUTURE_RESERVES``,
+  ``CLAWBACK_CLAIMABLE_BALANCE``, ``INVOKE_HOST_FUNCTION``,
+  ``EXTEND_FOOTPRINT_TTL`` and ``RESTORE_FOOTPRINT``.
 - ``HostFunctionType``: ``INVOKE_CONTRACT`` and ``UPLOAD_CONTRACT_WASM``.
 - ``PreconditionType``: ``PRECOND_NONE`` and ``PRECOND_TIME``.
 - ``SCVal`` vectors (contract call arguments), ``LedgerKey`` footprint vectors
@@ -109,6 +114,8 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 from typing import Any
+
+from . import operation_xdr
 
 
 class XdrCodecError(ValueError):
@@ -460,6 +467,7 @@ class OperationBody:
     op_type: int  # OperationType
     payment: PaymentOp | None = None  # for OPERATION_TYPE_PAYMENT
     invoke_host_function: InvokeHostFunctionOp | None = None  # for OPERATION_TYPE_INVOKE_HOST_FUNCTION
+    operation: Any | None = None  # selected payload from tests/operation_xdr.py
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1089,18 @@ def _decode_operation(reader: XdrReader) -> Operation:
             op_type=op_type,
             invoke_host_function=InvokeHostFunctionOp(host_function=host_function, auth=[]),
         )
+    elif operation_xdr.supports_operation_type(op_type):
+        try:
+            payload = operation_xdr.decode_operation_body(
+                reader,
+                op_type,
+                decode_account_id=_decode_public_key,
+                decode_muxed_account=_decode_muxed_account,
+                decode_asset=_decode_asset,
+            )
+        except operation_xdr.OperationCodecError as exc:
+            raise XdrCodecError(str(exc)) from None
+        body = OperationBody(op_type=op_type, operation=payload)
     else:
         raise XdrCodecError(
             f"unsupported OperationType arm: {op_type} is not implemented by the "
@@ -1112,6 +1132,18 @@ def _encode_operation(writer: XdrWriter, op: Operation) -> None:
                 "independent codec encodes authorization entries but implements none"
             )
         writer.write_uint32(0)
+    elif operation_xdr.supports_operation_type(op.body.op_type):
+        try:
+            operation_xdr.encode_operation_body(
+                writer,
+                op.body.op_type,
+                op.body.operation,
+                encode_account_id=_encode_public_key,
+                encode_muxed_account=_encode_muxed_account,
+                encode_asset=_encode_asset,
+            )
+        except operation_xdr.OperationCodecError as exc:
+            raise XdrCodecError(str(exc)) from None
     else:
         raise XdrCodecError(
             f"unsupported OperationType arm: {op.body.op_type} is not implemented by the "
