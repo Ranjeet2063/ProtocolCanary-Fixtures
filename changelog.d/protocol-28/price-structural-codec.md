@@ -1,0 +1,1 @@
+- Add a reusable structural XDR codec for Protocol 28 `Price`, verified against typed `stellar-xdr` 28.0.1 vectors.
