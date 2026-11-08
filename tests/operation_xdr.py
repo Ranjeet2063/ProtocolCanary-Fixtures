@@ -18,6 +18,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import price_xdr
+
 
 class OperationCodecError(ValueError):
     """Raised for unsupported or malformed OperationBody payloads."""
@@ -26,10 +28,13 @@ class OperationCodecError(ValueError):
 # OperationType values from the pinned Protocol 28 XDR definition.
 OPERATION_TYPE_CREATE_ACCOUNT = 0
 OPERATION_TYPE_PATH_PAYMENT_STRICT_RECEIVE = 2
+OPERATION_TYPE_MANAGE_SELL_OFFER = 3
+OPERATION_TYPE_CREATE_PASSIVE_SELL_OFFER = 4
 OPERATION_TYPE_ACCOUNT_MERGE = 8
 OPERATION_TYPE_INFLATION = 9
 OPERATION_TYPE_MANAGE_DATA = 10
 OPERATION_TYPE_BUMP_SEQUENCE = 11
+OPERATION_TYPE_MANAGE_BUY_OFFER = 12
 OPERATION_TYPE_PATH_PAYMENT_STRICT_SEND = 13
 OPERATION_TYPE_CLAIM_CLAIMABLE_BALANCE = 15
 OPERATION_TYPE_BEGIN_SPONSORING_FUTURE_RESERVES = 16
@@ -66,6 +71,23 @@ class PathPaymentStrictReceiveOp:
 
 
 @dataclass(frozen=True)
+class ManageSellOfferOp:
+    selling: Any  # Asset
+    buying: Any  # Asset
+    amount: int  # int64
+    price: price_xdr.Price
+    offer_id: int  # int64; XDR field name is offerID
+
+
+@dataclass(frozen=True)
+class CreatePassiveSellOfferOp:
+    selling: Any  # Asset
+    buying: Any  # Asset
+    amount: int  # int64
+    price: price_xdr.Price
+
+
+@dataclass(frozen=True)
 class AccountMergeOp:
     destination: Any  # MuxedAccount, decoded by the shared account codec
 
@@ -84,6 +106,15 @@ class ManageDataOp:
 @dataclass(frozen=True)
 class BumpSequenceOp:
     bump_to: int  # SequenceNumber, XDR int64
+
+
+@dataclass(frozen=True)
+class ManageBuyOfferOp:
+    selling: Any  # Asset
+    buying: Any  # Asset
+    buy_amount: int  # int64; XDR field name is buyAmount
+    price: price_xdr.Price
+    offer_id: int  # int64; XDR field name is offerID
 
 
 @dataclass(frozen=True)
@@ -152,10 +183,13 @@ _SUPPORTED_OPERATION_TYPES = frozenset(
     {
         OPERATION_TYPE_CREATE_ACCOUNT,
         OPERATION_TYPE_PATH_PAYMENT_STRICT_RECEIVE,
+        OPERATION_TYPE_MANAGE_SELL_OFFER,
+        OPERATION_TYPE_CREATE_PASSIVE_SELL_OFFER,
         OPERATION_TYPE_ACCOUNT_MERGE,
         OPERATION_TYPE_INFLATION,
         OPERATION_TYPE_MANAGE_DATA,
         OPERATION_TYPE_BUMP_SEQUENCE,
+        OPERATION_TYPE_MANAGE_BUY_OFFER,
         OPERATION_TYPE_PATH_PAYMENT_STRICT_SEND,
         OPERATION_TYPE_CLAIM_CLAIMABLE_BALANCE,
         OPERATION_TYPE_BEGIN_SPONSORING_FUTURE_RESERVES,
@@ -282,6 +316,21 @@ def decode_operation_body(
             dest_amount=reader.read_int64(),
             path=_decode_asset_path(reader, decode_asset),
         )
+    if operation_type == OPERATION_TYPE_MANAGE_SELL_OFFER:
+        return ManageSellOfferOp(
+            selling=decode_asset(reader),
+            buying=decode_asset(reader),
+            amount=reader.read_int64(),
+            price=price_xdr.decode_price(reader),
+            offer_id=reader.read_int64(),
+        )
+    if operation_type == OPERATION_TYPE_CREATE_PASSIVE_SELL_OFFER:
+        return CreatePassiveSellOfferOp(
+            selling=decode_asset(reader),
+            buying=decode_asset(reader),
+            amount=reader.read_int64(),
+            price=price_xdr.decode_price(reader),
+        )
     if operation_type == OPERATION_TYPE_ACCOUNT_MERGE:
         return AccountMergeOp(destination=decode_muxed_account(reader))
     if operation_type == OPERATION_TYPE_INFLATION:
@@ -290,6 +339,14 @@ def decode_operation_body(
         return _decode_manage_data(reader)
     if operation_type == OPERATION_TYPE_BUMP_SEQUENCE:
         return BumpSequenceOp(bump_to=reader.read_int64())
+    if operation_type == OPERATION_TYPE_MANAGE_BUY_OFFER:
+        return ManageBuyOfferOp(
+            selling=decode_asset(reader),
+            buying=decode_asset(reader),
+            buy_amount=reader.read_int64(),
+            price=price_xdr.decode_price(reader),
+            offer_id=reader.read_int64(),
+        )
     if operation_type == OPERATION_TYPE_PATH_PAYMENT_STRICT_SEND:
         return PathPaymentStrictSendOp(
             send_asset=decode_asset(reader),
@@ -347,6 +404,13 @@ def _write_int64(writer: Any, value: int, field_name: str) -> None:
     writer.write_int64(value)
 
 
+def _write_price(writer: Any, price: price_xdr.Price) -> None:
+    try:
+        price_xdr.encode_price(writer, price)
+    except price_xdr.PriceCodecError as exc:
+        raise OperationCodecError(str(exc)) from None
+
+
 def _write_uint32(writer: Any, value: int, field_name: str) -> None:
     if not 0 <= value <= _UINT32_MAX:
         raise OperationCodecError(f"{field_name} is outside the XDR uint32 range")
@@ -377,6 +441,21 @@ def encode_operation_body(
         _write_int64(writer, value.dest_amount, "PathPaymentStrictReceiveOp.destAmount")
         _encode_asset_path(writer, value.path, encode_asset)
         return
+    if operation_type == OPERATION_TYPE_MANAGE_SELL_OFFER:
+        value = _require_payload(operation_type, payload, ManageSellOfferOp)
+        encode_asset(writer, value.selling)
+        encode_asset(writer, value.buying)
+        _write_int64(writer, value.amount, "ManageSellOfferOp.amount")
+        _write_price(writer, value.price)
+        _write_int64(writer, value.offer_id, "ManageSellOfferOp.offerID")
+        return
+    if operation_type == OPERATION_TYPE_CREATE_PASSIVE_SELL_OFFER:
+        value = _require_payload(operation_type, payload, CreatePassiveSellOfferOp)
+        encode_asset(writer, value.selling)
+        encode_asset(writer, value.buying)
+        _write_int64(writer, value.amount, "CreatePassiveSellOfferOp.amount")
+        _write_price(writer, value.price)
+        return
     if operation_type == OPERATION_TYPE_ACCOUNT_MERGE:
         value = _require_payload(operation_type, payload, AccountMergeOp)
         encode_muxed_account(writer, value.destination)
@@ -391,6 +470,14 @@ def encode_operation_body(
     if operation_type == OPERATION_TYPE_BUMP_SEQUENCE:
         value = _require_payload(operation_type, payload, BumpSequenceOp)
         _write_int64(writer, value.bump_to, "BumpSequenceOp.bumpTo")
+        return
+    if operation_type == OPERATION_TYPE_MANAGE_BUY_OFFER:
+        value = _require_payload(operation_type, payload, ManageBuyOfferOp)
+        encode_asset(writer, value.selling)
+        encode_asset(writer, value.buying)
+        _write_int64(writer, value.buy_amount, "ManageBuyOfferOp.buyAmount")
+        _write_price(writer, value.price)
+        _write_int64(writer, value.offer_id, "ManageBuyOfferOp.offerID")
         return
     if operation_type == OPERATION_TYPE_PATH_PAYMENT_STRICT_SEND:
         value = _require_payload(operation_type, payload, PathPaymentStrictSendOp)
